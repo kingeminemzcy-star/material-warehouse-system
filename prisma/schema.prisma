@@ -1,0 +1,357 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+enum UserRole {
+  ADMIN
+  BOSS
+  WAREHOUSE
+  PURCHASER
+  PROJECT_MANAGER
+}
+
+enum ProjectStatus {
+  PLANNING
+  ACTIVE
+  PAUSED
+  COMPLETED
+}
+
+enum MaterialCategory {
+  STEEL
+  PLATE
+  CHAIN
+  MOTOR
+  FAN
+  SPRAY_GUN
+  FILTER
+  HARDWARE
+  CABLE
+  BEARING
+  CYLINDER
+  PAINT
+  OTHER
+}
+
+enum WarehouseZone {
+  STEEL_AREA
+  ELECTRICAL_AREA
+  SPARE_PARTS_AREA
+  SITE_TEMP_AREA
+  RETURN_AREA
+  SCRAP_AREA
+}
+
+enum PurchaseStatus {
+  PENDING_APPROVAL
+  REJECTED
+  APPROVED
+  ORDERED
+  PARTIAL_RECEIVED
+  COMPLETED
+}
+
+enum InboundSource {
+  PURCHASE_ARRIVAL
+  PROJECT_RETURN
+  INVENTORY_GAIN
+  OTHER
+}
+
+enum AuditAction {
+  PURCHASE_REQUEST
+  APPROVAL
+  PURCHASE_ORDER
+  INBOUND
+  OUTBOUND
+  UPDATE
+  DELETE
+  STOCK_ADJUSTMENT
+  LOGIN
+}
+
+model UserProfile {
+  id              String            @id @default(cuid())
+  supabaseUserId  String            @unique
+  name            String
+  phone           String?
+  role            UserRole
+  isActive        Boolean           @default(true)
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+  projectsManaged Project[]         @relation("ProjectManager")
+  requests        PurchaseRequest[] @relation("RequestApplicant")
+  approvals       PurchaseRequest[] @relation("RequestApprover")
+  purchaseOrders  PurchaseOrder[]   @relation("OrderPurchaser")
+  inboundRecords  InboundRecord[]
+  outboundRecords OutboundRecord[]
+  photos          Photo[]
+  auditLogs       AuditLog[]
+}
+
+model Project {
+  id                String            @id @default(cuid())
+  code              String            @unique
+  name              String
+  customer          String?
+  managerId         String?
+  status            ProjectStatus     @default(ACTIVE)
+  startDate         DateTime?
+  expectedEndDate   DateTime?
+  notes             String?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+  manager           UserProfile?      @relation("ProjectManager", fields: [managerId], references: [id])
+  purchaseRequests  PurchaseRequest[]
+  inboundRecords    InboundRecord[]
+  outboundRecords   OutboundRecord[]
+  inventoryLots     InventoryLot[]
+  photos            Photo[]
+  auditLogs         AuditLog[]
+}
+
+model Material {
+  id             String             @id @default(cuid())
+  materialCode   String             @unique
+  name           String
+  category       MaterialCategory
+  unit           String
+  minStock       Decimal            @default(0)
+  qrCode         String?
+  defaultPhoto   String?
+  notes          String?
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+  specs          MaterialSpec[]
+  purchaseItems  PurchaseRequestItem[]
+  orderItems     PurchaseOrderItem[]
+  inboundRecords InboundRecord[]
+  outboundRecords OutboundRecord[]
+  inventoryLots  InventoryLot[]
+  photos         Photo[]
+  auditLogs      AuditLog[]
+}
+
+model MaterialSpec {
+  id              String           @id @default(cuid())
+  materialId      String
+  specCode        String           @unique
+  specModel       String?
+  materialText    String?
+  dimensionsText  String?
+  length          Decimal?
+  width           Decimal?
+  height          Decimal?
+  thickness       Decimal?
+  diameter        Decimal?
+  wallThickness   Decimal?
+  brand           String?
+  power           String?
+  voltage         String?
+  speed           String?
+  airVolume       String?
+  airPressure     String?
+  pitch           String?
+  caliber         String?
+  filterGrade     String?
+  coreCount       Int?
+  squareMm        Decimal?
+  innerDiameter   Decimal?
+  outerDiameter   Decimal?
+  bore            Decimal?
+  stroke          Decimal?
+  color           String?
+  batchNo         String?
+  shelfLife       DateTime?
+  qrCode          String?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  material        Material         @relation(fields: [materialId], references: [id], onDelete: Cascade)
+  purchaseItems   PurchaseRequestItem[]
+  orderItems      PurchaseOrderItem[]
+  inboundRecords  InboundRecord[]
+  outboundRecords OutboundRecord[]
+  inventoryLots   InventoryLot[]
+
+  @@index([materialId, specModel, materialText, dimensionsText])
+}
+
+model PurchaseRequest {
+  id              String                @id @default(cuid())
+  requestNo       String                @unique
+  projectId       String
+  applicantId     String
+  approverId      String?
+  status          PurchaseStatus        @default(PENDING_APPROVAL)
+  purpose         String
+  expectedArrival DateTime?
+  remark          String?
+  approvedAt      DateTime?
+  rejectedReason  String?
+  createdAt       DateTime              @default(now())
+  updatedAt       DateTime              @updatedAt
+  project         Project               @relation(fields: [projectId], references: [id])
+  applicant       UserProfile           @relation("RequestApplicant", fields: [applicantId], references: [id])
+  approver        UserProfile?          @relation("RequestApprover", fields: [approverId], references: [id])
+  items           PurchaseRequestItem[]
+  purchaseOrders  PurchaseOrder[]
+}
+
+model PurchaseRequestItem {
+  id                String          @id @default(cuid())
+  purchaseRequestId String
+  materialId        String
+  specId            String
+  quantity          Decimal
+  unit              String
+  purpose           String?
+  remark            String?
+  purchaseRequest   PurchaseRequest @relation(fields: [purchaseRequestId], references: [id], onDelete: Cascade)
+  material          Material        @relation(fields: [materialId], references: [id])
+  spec              MaterialSpec    @relation(fields: [specId], references: [id])
+}
+
+model PurchaseOrder {
+  id                String              @id @default(cuid())
+  orderNo           String              @unique
+  purchaseRequestId String
+  purchaserId       String
+  supplier          String
+  totalAmount       Decimal             @default(0)
+  expectedArrival   DateTime?
+  status            PurchaseStatus      @default(ORDERED)
+  remark            String?
+  orderedAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+  purchaseRequest   PurchaseRequest     @relation(fields: [purchaseRequestId], references: [id])
+  purchaser         UserProfile         @relation("OrderPurchaser", fields: [purchaserId], references: [id])
+  items             PurchaseOrderItem[]
+  inboundRecords    InboundRecord[]
+}
+
+model PurchaseOrderItem {
+  id              String        @id @default(cuid())
+  purchaseOrderId String
+  materialId      String
+  specId          String
+  quantity        Decimal
+  receivedQty     Decimal       @default(0)
+  unitPrice       Decimal       @default(0)
+  unit            String
+  purchaseOrder   PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+  material        Material      @relation(fields: [materialId], references: [id])
+  spec            MaterialSpec  @relation(fields: [specId], references: [id])
+}
+
+model InventoryLot {
+  id              String        @id @default(cuid())
+  materialId      String
+  specId          String
+  zone            WarehouseZone
+  locationCode    String
+  sourceProjectId String?
+  quantity        Decimal
+  unit            String
+  lastInboundAt   DateTime?
+  lastOutboundAt  DateTime?
+  photoUrl        String?
+  updatedAt       DateTime      @updatedAt
+  material        Material      @relation(fields: [materialId], references: [id])
+  spec            MaterialSpec  @relation(fields: [specId], references: [id])
+  sourceProject   Project?      @relation(fields: [sourceProjectId], references: [id])
+
+  @@unique([materialId, specId, zone, locationCode, sourceProjectId])
+  @@index([zone, locationCode])
+}
+
+model InboundRecord {
+  id              String          @id @default(cuid())
+  inboundNo       String          @unique
+  purchaseOrderId String?
+  materialId      String
+  specId          String
+  projectId       String?
+  source          InboundSource
+  zone            WarehouseZone
+  locationCode    String
+  quantity        Decimal
+  unit            String
+  beforeQty       Decimal
+  afterQty        Decimal
+  operatorId      String
+  remark          String?
+  createdAt       DateTime        @default(now())
+  purchaseOrder   PurchaseOrder?  @relation(fields: [purchaseOrderId], references: [id])
+  material        Material        @relation(fields: [materialId], references: [id])
+  spec            MaterialSpec    @relation(fields: [specId], references: [id])
+  project         Project?        @relation(fields: [projectId], references: [id])
+  operator        UserProfile     @relation(fields: [operatorId], references: [id])
+  photos          Photo[]
+}
+
+model OutboundRecord {
+  id             String        @id @default(cuid())
+  outboundNo     String        @unique
+  materialId     String
+  specId         String
+  projectId      String
+  zone           WarehouseZone
+  locationCode   String
+  quantity       Decimal
+  unit           String
+  purpose        String
+  beforeQty      Decimal
+  afterQty       Decimal
+  operatorId     String
+  remark         String?
+  createdAt      DateTime      @default(now())
+  material       Material      @relation(fields: [materialId], references: [id])
+  spec           MaterialSpec  @relation(fields: [specId], references: [id])
+  project        Project       @relation(fields: [projectId], references: [id])
+  operator       UserProfile   @relation(fields: [operatorId], references: [id])
+  photos         Photo[]
+}
+
+model Photo {
+  id              String          @id @default(cuid())
+  url             String
+  storagePath     String?
+  caption         String?
+  materialId      String?
+  projectId       String?
+  inboundRecordId String?
+  outboundRecordId String?
+  operatorId      String
+  createdAt       DateTime        @default(now())
+  material        Material?       @relation(fields: [materialId], references: [id])
+  project         Project?        @relation(fields: [projectId], references: [id])
+  inboundRecord   InboundRecord?  @relation(fields: [inboundRecordId], references: [id])
+  outboundRecord  OutboundRecord? @relation(fields: [outboundRecordId], references: [id])
+  operator        UserProfile     @relation(fields: [operatorId], references: [id])
+}
+
+model AuditLog {
+  id             String       @id @default(cuid())
+  actorId        String
+  action         AuditAction
+  materialId     String?
+  projectId      String?
+  quantityChange Decimal?
+  beforeQty      Decimal?
+  afterQty       Decimal?
+  photoUrl       String?
+  remark         String?
+  metadata       Json?
+  createdAt      DateTime     @default(now())
+  actor          UserProfile  @relation(fields: [actorId], references: [id])
+  material       Material?    @relation(fields: [materialId], references: [id])
+  project        Project?     @relation(fields: [projectId], references: [id])
+
+  @@index([actorId, action, createdAt])
+}

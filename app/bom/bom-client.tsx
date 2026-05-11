@@ -16,6 +16,9 @@ type BomMapping = Record<number, BomColumnKey>;
 type ParsedBomTable = { fileName: string; rows: string[][]; headerIndex: number; headers: string[]; mapping: BomMapping; projectCode: string; issues: BomParseIssue[] };
 
 const BOM_MAPPING_TEMPLATE_KEY = "warehouse-bom-mapping-template-v1";
+const HEADER_SCAN_LIMIT = 30;
+const REQUIRED_HEADER_MATCHES = 3;
+const requiredHeaderKeys: BomColumnKey[] = ["materialName", "quantity", "spec", "unit", "material", "sequence"];
 
 const fieldOptions: Array<{ key: BomColumnKey; label: string }> = [
   { key: "ignore", label: "忽略" },
@@ -100,6 +103,10 @@ function saveStoredMapping(mapping: BomMapping) {
   window.localStorage.setItem(BOM_MAPPING_TEMPLATE_KEY, JSON.stringify(mapping));
 }
 
+function createMappingFromHeaders(headers: string[]) {
+  return Object.fromEntries(headers.map((header, index) => [index, matchHeader(header)])) as BomMapping;
+}
+
 function normalizeTableRow(row: unknown, line: number, fileName: string): { row?: string[]; issue?: BomParseIssue } {
   if (Array.isArray(row)) {
     const cells = row.map((cell) => String(cell ?? "").trim());
@@ -147,26 +154,32 @@ function extractProjectCode(rows: string[][], headerIndex: number) {
 
 function scoreHeaderRow(row: string[]) {
   const matched = row.map(matchHeader);
-  const score = matched.filter((key) => key !== "ignore").length;
+  const requiredMatches = new Set(matched.filter((key) => requiredHeaderKeys.includes(key)));
   const hasName = matched.includes("materialName");
   const hasQuantity = matched.includes("quantity");
   const hasSpec = matched.includes("spec");
+  const hasUnit = matched.includes("unit");
+  const hasMaterial = matched.includes("material");
   const hasSequence = matched.includes("sequence");
-  return { score: score + (hasName ? 2 : 0) + (hasQuantity ? 2 : 0) + (hasSpec ? 1 : 0) + (hasSequence ? 1 : 0), matched, hasName, hasQuantity };
+  const score = requiredMatches.size + (hasName ? 3 : 0) + (hasQuantity ? 3 : 0) + (hasSpec ? 2 : 0) + (hasUnit ? 1 : 0) + (hasMaterial ? 1 : 0) + (hasSequence ? 1 : 0);
+  return { score, matched, hasName, hasQuantity, requiredMatchCount: requiredMatches.size };
 }
 
 function detectBomTable(rows: string[][], fileName: string): ParsedBomTable {
-  let best = { index: -1, score: 0, matched: [] as BomColumnKey[], hasName: false, hasQuantity: false };
-  rows.forEach((row, index) => {
+  let best = { index: -1, score: 0, matched: [] as BomColumnKey[], hasName: false, hasQuantity: false, requiredMatchCount: 0 };
+  rows.slice(0, HEADER_SCAN_LIMIT).forEach((row, index) => {
+    if (!row.some(Boolean)) return;
     const result = scoreHeaderRow(row);
-    if (result.score > best.score) best = { index, ...result };
+    if (result.requiredMatchCount >= REQUIRED_HEADER_MATCHES && result.score > best.score) best = { index, ...result };
   });
   const issues: BomParseIssue[] = [];
-  if (best.index < 0 || best.score < 4 || !best.hasName || !best.hasQuantity) {
-    issues.push({ fileName, line: best.index >= 0 ? best.index + 1 : 0, reason: "未自动识别到包含名称和数量的 BOM 表头" });
+  if (best.index < 0 || best.requiredMatchCount < REQUIRED_HEADER_MATCHES) {
+    issues.push({ fileName, line: 0, reason: "未自动识别到真实表头，请在页面手动选择表头行" });
+  } else if (!best.hasName || !best.hasQuantity) {
+    issues.push({ fileName, line: best.index + 1, reason: "表头缺少名称或数量字段，请检查字段映射" });
   }
   const headers = rows[best.index] ?? [];
-  const detectedMapping = Object.fromEntries(headers.map((header, index) => [index, matchHeader(header)])) as BomMapping;
+  const detectedMapping = createMappingFromHeaders(headers);
   const storedMapping = readStoredMapping();
   const mapping = storedMapping && Object.keys(storedMapping).length === headers.length ? storedMapping : detectedMapping;
   return {
@@ -177,6 +190,20 @@ function detectBomTable(rows: string[][], fileName: string): ParsedBomTable {
     mapping,
     projectCode: extractProjectCode(rows, best.index),
     issues
+  };
+}
+
+function updateTableHeader(table: ParsedBomTable, headerIndex: number): ParsedBomTable {
+  const headers = table.rows[headerIndex] ?? [];
+  const detectedMapping = createMappingFromHeaders(headers);
+  const storedMapping = readStoredMapping();
+  return {
+    ...table,
+    headerIndex,
+    headers,
+    mapping: storedMapping && Object.keys(storedMapping).length === headers.length ? storedMapping : detectedMapping,
+    projectCode: extractProjectCode(table.rows, headerIndex),
+    issues: []
   };
 }
 
@@ -191,6 +218,14 @@ function parseQuantity(value: string) {
   return Number(normalized);
 }
 
+function isPaginationOrRepeatedHeader(row: string[]) {
+  const joined = normalizeText(row.join(""));
+  if (!joined) return true;
+  if (/第\d+页/.test(joined) || joined.includes("页码") || joined.includes("page")) return true;
+  if (joined.includes("打印") || joined.includes("制表") || joined.includes("审核")) return true;
+  return scoreHeaderRow(row).requiredMatchCount >= REQUIRED_HEADER_MATCHES;
+}
+
 function buildRowsFromMapping(table: ParsedBomTable, mapping: BomMapping): { rows: BomInputRow[]; issues: BomParseIssue[] } {
   if (table.headerIndex < 0 || !table.headers.length) {
     return { rows: [], issues: [{ fileName: table.fileName, line: 0, reason: "未识别到真实表头，无法生成 BOM 明细" }] };
@@ -201,6 +236,7 @@ function buildRowsFromMapping(table: ParsedBomTable, mapping: BomMapping): { row
   table.rows.slice(table.headerIndex + 1).forEach((row, index) => {
     const line = table.headerIndex + index + 2;
     if (!row.some(Boolean)) return;
+    if (isPaginationOrRepeatedHeader(row)) return;
     const materialName = valueByMapping(row, mapping, "materialName");
     const quantityText = valueByMapping(row, mapping, "quantity");
     const quantity = parseQuantity(quantityText);
@@ -325,6 +361,24 @@ export function BomClient() {
     setMessage(`${shouldSave ? "字段映射模板已保存，" : ""}当前映射生成 ${parsed.rows.length} 行有效 BOM 明细${nextIssues.length ? `，跳过 ${nextIssues.length} 行` : ""}。`);
   }
 
+  function selectHeaderRow(headerIndex: number) {
+    if (!parsedTable) return;
+    const nextTable = updateTableHeader(parsedTable, headerIndex);
+    const parsed = buildRowsFromMapping(nextTable, nextTable.mapping);
+    const nextIssues = [...nextTable.issues, ...parsed.issues];
+    setParsedTable(nextTable);
+    setMapping(nextTable.mapping);
+    setRows(parsed.rows);
+    setParseIssues(nextIssues);
+    if (!parsed.rows.length) {
+      setError(`已切换到第 ${headerIndex + 1} 行作为表头，但未生成有效明细，请检查字段映射。`);
+      setMessage(null);
+      return;
+    }
+    setError(null);
+    setMessage(`已切换第 ${headerIndex + 1} 行作为真实表头，生成 ${parsed.rows.length} 行有效 BOM 明细${nextIssues.length ? `，跳过 ${nextIssues.length} 行` : ""}。`);
+  }
+
   async function uploadBom() {
     if (!projectId) return setError("请选择工程项目。");
     if (!rows.length) return setError("请先上传 BOM 文件。");
@@ -428,10 +482,22 @@ export function BomClient() {
             <div className="mt-4 rounded-md border border-blue-100 bg-blue-50 px-3 py-3 text-xs font-semibold text-blue-950">
               <div className="text-sm font-black">识别结果</div>
               <div className="mt-2 grid gap-1 text-blue-900/75">
-                <div>真实表头：第 {parsedTable.headerIndex + 1} 行</div>
+                <div>真实表头：{parsedTable.headerIndex >= 0 ? `第 ${parsedTable.headerIndex + 1} 行` : "未自动识别"}</div>
                 <div>项目号：{parsedTable.projectCode || "未识别"}</div>
-                <div>原始字段：{parsedTable.headers.filter(Boolean).join(" / ")}</div>
+                <div>原始字段：{parsedTable.headers.filter(Boolean).join(" / ") || "请手动选择表头行"}</div>
               </div>
+              <label className="mt-3 grid gap-2">
+                <span className="form-label">手动切换表头行</span>
+                <select className="field" value={parsedTable.headerIndex} onChange={(event) => selectHeaderRow(Number(event.target.value))}>
+                  <option value={-1}>请选择表头行</option>
+                  {parsedTable.rows.slice(0, HEADER_SCAN_LIMIT).map((row, index) => {
+                    const preview = row.filter(Boolean).slice(0, 8).join(" / ");
+                    if (!preview) return null;
+                    const score = scoreHeaderRow(row);
+                    return <option key={`${index}-${preview}`} value={index}>第 {index + 1} 行：{preview} {score.requiredMatchCount ? `（命中 ${score.requiredMatchCount} 个关键字段）` : ""}</option>;
+                  })}
+                </select>
+              </label>
             </div>
           ) : null}
           {parseIssues.length ? (

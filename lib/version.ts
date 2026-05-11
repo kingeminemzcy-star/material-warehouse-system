@@ -1,4 +1,4 @@
-export const APP_VERSION = "v0.5.0-alpha";
+export const APP_VERSION = "v0.5.1-alpha";
 
 export type ChangelogEntry = {
   version: string;
@@ -9,6 +9,20 @@ export type ChangelogEntry = {
 };
 
 export const changelog: ChangelogEntry[] = [
+  {
+    version: "v0.5.1-alpha",
+    updatedAt: "2026-05-11",
+    changes: [
+      "BOM 打印版表头识别改为扫描前 30 行，不再默认第 0 行为真实表头。",
+      "表头判定改为基于名称、数量、规格型号、单位、材质、序号等明细关键字段，命中 3 个以上才视为真实表头。",
+      "BOM 导入页新增检测到的真实表头行号、字段映射结果展示，并支持手动切换表头行。"
+    ],
+    bugFixes: [
+      "修复页眉中的项目号、填单人、日期等信息被误判为 BOM 明细表头的问题。",
+      "过滤分页区域、重复表头和无效空行，识别失败时提示用户选择表头行而不是中断页面。"
+    ],
+    databaseImpact: "无"
+  },
   {
     version: "v0.5.0-alpha",
     updatedAt: "2026-05-11",

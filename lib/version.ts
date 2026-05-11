@@ -1,4 +1,4 @@
-export const APP_VERSION = "v0.5.3-alpha";
+export const APP_VERSION = "v0.5.4-alpha";
 
 export type ChangelogEntry = {
   version: string;
@@ -9,6 +9,22 @@ export type ChangelogEntry = {
 };
 
 export const changelog: ChangelogEntry[] = [
+  {
+    version: "v0.5.4-alpha",
+    updatedAt: "2026-05-11",
+    changes: [
+      "升级 BOM 字段别名库，支持名称、材料名称、物料名称、品名自动映射为材料名称。",
+      "支持规格、规格型号、型号、规格参数自动映射为规格，数量、qty、QTY、数自动映射为数量。",
+      "支持单位、材质、材料材质、图号、部件位、区域、系统位号等打印版 BOM 字段别名。",
+      "字段映射预览改为显示原始字段到系统字段的结果，例如 名称 → 材料名称。"
+    ],
+    bugFixes: [
+      "修复打印版 BOM 中名称、数量、规格型号存在但未被识别的问题。",
+      "字段识别时忽略空格、换行、大小写和中英文括号差异。",
+      "缺失字段提示改为明确指出未识别到数量字段、名称字段或规格型号字段。"
+    ],
+    databaseImpact: "无"
+  },
   {
     version: "v0.5.3-alpha",
     updatedAt: "2026-05-11",

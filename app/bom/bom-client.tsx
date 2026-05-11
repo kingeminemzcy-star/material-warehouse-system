@@ -41,14 +41,14 @@ const headerMap: Record<Exclude<BomColumnKey, "ignore">, string[]> = {
   projectCode: ["项目号", "项目编号", "项目编码", "工程号", "工程编号", "projectCode"],
   applicant: ["填单人", "申请人", "制表人", "编制人"],
   date: ["日期", "填单日期", "制表日期"],
-  drawingNo: ["图号", "部件位", "部位", "位置", "drawingNo", "drawing", "图纸编号"],
+  drawingNo: ["图号", "部件位", "部位", "区域", "系统位号", "位置", "drawingNo", "drawing", "图纸编号"],
   sequence: ["序号", "编号", "no"],
-  materialName: ["材料名称", "名称", "物料名称", "材料", "materialName"],
-  spec: ["规格", "规格型号", "型号", "spec"],
+  materialName: ["名称", "材料名称", "物料名称", "品名", "materialName"],
+  spec: ["规格", "规格型号", "型号", "规格参数", "spec"],
   brand: ["品牌", "厂家", "制造商"],
-  material: ["材质", "material"],
+  material: ["材质", "材料", "材料材质", "material"],
   unit: ["单位", "unit"],
-  quantity: ["数量", "需求数量", "qty", "quantity"],
+  quantity: ["数量", "数", "需求数量", "qty", "QTY", "quantity"],
   stock: ["库存", "库存数量", "现有库存"],
   remark: ["备注", "remark", "说明"]
 };
@@ -71,7 +71,11 @@ function parseCsv(text: string) {
 }
 
 function normalizeText(value: string) {
-  return value.toLowerCase().replace(/[\s:：/\\|｜\-_.()（）[\]【】]/g, "");
+  return value
+    .toLowerCase()
+    .replace(/[（]/g, "(")
+    .replace(/[）]/g, ")")
+    .replace(/[\s\r\n\t:：/\\|｜\-_.()[\]【】]/g, "");
 }
 
 function matchHeader(cell: string): BomColumnKey {
@@ -125,9 +129,17 @@ function missingRequiredFields(mapping: BomMapping) {
   return missing;
 }
 
+function missingFieldReason(mapping: BomMapping) {
+  return missingRequiredFields(mapping).map((field) => `未识别到${field}字段`).join("；");
+}
+
 function rowPreview(row: string[]) {
   const preview = row.filter(Boolean).slice(0, 8).join("｜");
   return preview || "空行";
+}
+
+function mappingSummary(headers: string[], mapping: BomMapping) {
+  return headers.map((header, index) => ({ header: header || `第 ${index + 1} 列`, target: mapping[index] ?? "ignore" })).filter((item) => item.target !== "ignore");
 }
 
 function normalizeTableRow(row: unknown, line: number, fileName: string): { row?: string[]; issue?: BomParseIssue } {
@@ -293,7 +305,7 @@ function buildRowsFromMapping(table: ParsedBomTable, mapping: BomMapping): { row
     parsedRows.push(parsedRow);
   });
   const missing = missingRequiredFields(mapping);
-  if (missing.length) issues.unshift({ fileName: table.fileName, line: table.headerIndex + 1, reason: `缺失字段：${missing.join("、")}` });
+  if (missing.length) issues.unshift({ fileName: table.fileName, line: table.headerIndex + 1, reason: missing.map((field) => `未识别到${field}字段`).join("；") });
   return { rows: parsedRows, issues };
 }
 
@@ -314,6 +326,7 @@ export function BomClient() {
   const drawingNo = rows[0]?.drawingNo ?? "";
   const currentBom = useMemo(() => boms.find((bom) => bom.isCurrent) ?? boms[0], [boms]);
   const headerCandidates = useMemo(() => parsedTable?.rows.slice(0, HEADER_SCAN_LIMIT).map((row, index) => ({ row, index, preview: rowPreview(row), score: scoreHeaderRow(row) })) ?? [], [parsedTable]);
+  const visibleMapping = useMemo(() => parsedTable ? mappingSummary(parsedTable.headers, mapping) : [], [parsedTable, mapping]);
 
   async function loadProjects() {
     const payload = await fetch("/api/projects", { headers: await getAuthHeaders(), cache: "no-store" }).then((res) => res.json());
@@ -351,8 +364,8 @@ export function BomClient() {
       setRows(parsed.rows);
       setParseIssues(nextIssues);
       if (!parsed.rows.length) {
-        const missing = missingRequiredFields(nextTable.mapping);
-        setError(missing.length ? `文件 ${file.name} 未解析到有效 BOM 明细，缺失字段：${missing.join("、")}。请手动选择表头行或调整字段映射。` : `文件 ${file.name} 未解析到有效 BOM 明细，请检查表头识别和字段映射。`);
+        const missingReason = missingFieldReason(nextTable.mapping);
+        setError(missingReason ? `文件 ${file.name} 未解析到有效 BOM 明细：${missingReason}。请手动选择表头行或调整字段映射。` : `文件 ${file.name} 未解析到有效 BOM 明细，请检查表头识别和字段映射。`);
         return;
       }
       setMessage(`文件 ${file.name} 解析完成，识别表头在第 ${nextTable.headerIndex + 1} 行，预览 ${parsed.rows.length} 行${nextIssues.length ? `，跳过 ${nextIssues.length} 行` : ""}。`);
@@ -373,8 +386,8 @@ export function BomClient() {
     setRows(parsed.rows);
     setParseIssues(nextIssues);
     if (!parsed.rows.length) {
-      const missing = missingRequiredFields(nextMapping);
-      setError(missing.length ? `当前字段映射缺失：${missing.join("、")}。请调整字段映射。` : "当前字段映射未生成有效 BOM 明细，请检查名称、数量和数据区域。");
+      const missingReason = missingFieldReason(nextMapping);
+      setError(missingReason ? `当前字段映射不完整：${missingReason}。请调整字段映射。` : "当前字段映射未生成有效 BOM 明细，请检查名称、数量和数据区域。");
       setMessage(null);
       return;
     }
@@ -396,8 +409,8 @@ export function BomClient() {
     setRows(parsed.rows);
     setParseIssues(nextIssues);
     if (!parsed.rows.length) {
-      const missing = missingRequiredFields(nextTable.mapping);
-      setError(missing.length ? `已切换到第 ${headerIndex + 1} 行作为表头，但缺失字段：${missing.join("、")}。请在字段映射中补齐。` : `已切换到第 ${headerIndex + 1} 行作为表头，但未生成有效明细，请检查数据区域。`);
+      const missingReason = missingFieldReason(nextTable.mapping);
+      setError(missingReason ? `已切换到第 ${headerIndex + 1} 行作为表头，但${missingReason}。请在字段映射中补齐。` : `已切换到第 ${headerIndex + 1} 行作为表头，但未生成有效明细，请检查数据区域。`);
       setMessage(null);
       return;
     }
@@ -564,8 +577,9 @@ export function BomClient() {
                 ))}
               </div>
               <div className="mt-3 flex flex-wrap gap-2 text-xs font-semibold text-ink/55">
-                {Object.entries(mapping).filter(([, value]) => value !== "ignore").map(([index, value]) => (
-                  <span key={`${index}-${value}`} className="rounded-full bg-white px-3 py-1">第 {Number(index) + 1} 列 → {getFieldLabel(value)}</span>
+                {visibleMapping.length === 0 ? <span className="rounded-full bg-white px-3 py-1 text-red-700">暂无已识别字段，请手动调整映射</span> : null}
+                {visibleMapping.map(({ header, target }, index) => (
+                  <span key={`${header}-${target}-${index}`} className="rounded-full bg-white px-3 py-1">{header} → {getFieldLabel(target)}</span>
                 ))}
               </div>
             </div>

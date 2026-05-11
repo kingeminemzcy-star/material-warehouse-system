@@ -1,4 +1,4 @@
-export const APP_VERSION = "v0.4.1-alpha";
+export const APP_VERSION = "v0.5.0-alpha";
 
 export type ChangelogEntry = {
   version: string;
@@ -9,6 +9,21 @@ export type ChangelogEntry = {
 };
 
 export const changelog: ChangelogEntry[] = [
+  {
+    version: "v0.5.0-alpha",
+    updatedAt: "2026-05-11",
+    changes: [
+      "BOM 中心升级为支持打印版工程 BOM，可自动跳过公司页眉、Logo、说明文字、空行和分页区域。",
+      "新增真实表头位置自动识别，支持项目号、填单人、日期、部件位、序号、名称、规格型号、品牌、材质、单位、数量、库存、备注等字段。",
+      "新增字段映射预览和手动映射调整，名称映射为材料名称、规格型号映射为规格、项目号映射为项目编码、部件位映射为图号/部位。",
+      "支持保存 BOM 字段映射模板，同类型 BOM 下次上传时自动套用。"
+    ],
+    bugFixes: [
+      "增强合并单元格 Excel 的空值兼容，部件位为空时会沿用上一行部件位。",
+      "解析失败时展示错误文件、错误行和缺失字段原因，避免页面崩溃。"
+    ],
+    databaseImpact: "无"
+  },
   {
     version: "v0.4.1-alpha",
     updatedAt: "2026-05-11",

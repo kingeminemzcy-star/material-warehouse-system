@@ -1,6 +1,6 @@
 {
   "name": "material-warehouse-system",
-  "version": "0.4.1-alpha",
+  "version": "0.5.0-alpha",
   "private": true,
   "scripts": {
     "dev": "next dev",

@@ -1,4 +1,4 @@
-export const APP_VERSION = "v0.2.0-alpha";
+export const APP_VERSION = "v0.3.0-alpha";
 
 export type ChangelogEntry = {
   version: string;
@@ -9,6 +9,22 @@ export type ChangelogEntry = {
 };
 
 export const changelog: ChangelogEntry[] = [
+  {
+    version: "v0.3.0-alpha",
+    updatedAt: "2026-05-11",
+    changes: [
+      "进入 Phase 2 BOM 中心与材料标准化，新增 BOM 中心页面。",
+      "支持 Excel 和 CSV 上传 BOM，自动识别图号、材料名称、规格、材质、单位、数量、备注字段。",
+      "一个项目可保存多个 BOM，一个图号可保留多个 BOM 版本，并支持切换当前版本。",
+      "BOM 上传后自动匹配已有材料，未匹配材料会提示创建材料档案。",
+      "新增标准 materialCode 规则，按分类、材质、规格、厚度、长度生成编码，减少重复材料。",
+      "新增 BOM 缺料分析，自动计算需求数量、当前库存和缺口数量，并支持一键生成采购申请。"
+    ],
+    bugFixes: [
+      "修复项目编辑/作废时可能丢失项目图号和 BOM 元数据的问题。"
+    ],
+    databaseImpact: "无"
+  },
   {
     version: "v0.2.0-alpha",
     updatedAt: "2026-05-11",

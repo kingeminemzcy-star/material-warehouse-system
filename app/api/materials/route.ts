@@ -3,6 +3,7 @@ import QRCode from "qrcode";
 import { canManageAccounts, getAuthContext } from "@/lib/auth";
 import { writeOperationLog } from "@/lib/audit";
 import { compactId } from "@/lib/ids";
+import { buildMaterialCode } from "@/lib/material-code";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { categoryFromLabel, categoryLabels } from "@/lib/warehouse-maps";
 
@@ -106,10 +107,19 @@ export async function POST(request: NextRequest) {
 
   const supabase = createSupabaseAdminClient();
   const now = new Date().toISOString();
-  const materialCode = `MAT-${Date.now()}`;
-  const specCode = `SPEC-${Date.now()}`;
+  const category = categoryFromLabel(body.category);
+  const materialCode = buildMaterialCode({ category, material: body.material, spec: body.spec, dimensions: body.dimensions });
+  const specCode = `${materialCode}-S`;
   const qrText = `${materialCode}|${specCode}`;
   const qrCode = await QRCode.toDataURL(qrText, { margin: 1, width: 180 });
+  const { data: existing } = await supabase
+    .from("Material")
+    .select("*, MaterialSpec(*)")
+    .eq("materialCode", materialCode)
+    .maybeSingle();
+  if (existing) {
+    return NextResponse.json({ error: `材料编码已存在：${materialCode}，请检查是否重复录入。`, material: existing }, { status: 409 });
+  }
 
   const { data: material, error: materialError } = await supabase
     .from("Material")
@@ -117,7 +127,7 @@ export async function POST(request: NextRequest) {
       id: compactId("mat"),
       materialCode,
       name: body.name,
-      category: categoryFromLabel(body.category),
+      category,
       unit: body.unit,
       minStock: body.minStock ?? 0,
       qrCode,

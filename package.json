@@ -1,6 +1,6 @@
 {
   "name": "material-warehouse-system",
-  "version": "0.2.0-alpha",
+  "version": "0.3.0-alpha",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -23,6 +23,7 @@
     "qrcode": "^1.5.4",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
+    "read-excel-file": "^9.0.9",
     "zod": "^3.24.1"
   },
   "devDependencies": {

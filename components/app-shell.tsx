@@ -2,6 +2,7 @@ import Link from "next/link";
 import {
   ClipboardCheck,
   ClipboardList,
+  FileSpreadsheet,
   FileClock,
   Home,
   LogOut,
@@ -25,6 +26,7 @@ import { VersionFooter } from "@/components/version-footer";
 const nav = [
   { href: "/dashboard", label: "首页", icon: Home },
   { href: "/projects", label: "工程项目", icon: ClipboardList },
+  { href: "/bom", label: "BOM 中心", icon: FileSpreadsheet },
   { href: "/materials", label: "材料档案", icon: Package },
   { href: "/purchase-requests", label: "采购申请", icon: ClipboardCheck },
   { href: "/approvals", label: "老板审批", icon: ShieldCheck },

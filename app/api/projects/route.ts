@@ -213,7 +213,8 @@ export async function PATCH(request: NextRequest) {
       voided: oldNotes.voided,
       voidReason: oldNotes.voidReason,
       voidedAt: oldNotes.voidedAt,
-      drawings: oldNotes.drawings
+      drawings: oldNotes.drawings,
+      boms: oldNotes.boms
     }),
     updatedAt: now
   };
@@ -286,7 +287,8 @@ export async function DELETE(request: NextRequest) {
       voided: true,
       voidReason: reason,
       voidedAt: now,
-      drawings: oldNotes.drawings
+      drawings: oldNotes.drawings,
+      boms: oldNotes.boms
     }),
     updatedAt: now
   };

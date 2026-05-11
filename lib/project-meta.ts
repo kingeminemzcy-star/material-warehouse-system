@@ -9,6 +9,32 @@ export type ProjectDrawing = {
   createdAt: string;
 };
 
+export type BomRow = {
+  id: string;
+  drawingNo: string;
+  materialName: string;
+  spec: string;
+  material: string;
+  unit: string;
+  quantity: number;
+  remark: string;
+  materialCode: string;
+  matchedMaterialId?: string;
+  matchedSpecId?: string;
+};
+
+export type ProjectBom = {
+  id: string;
+  projectId: string;
+  drawingId: string;
+  drawingNo: string;
+  version: string;
+  isCurrent: boolean;
+  uploadedAt: string;
+  uploadedBy: string;
+  rows: BomRow[];
+};
+
 export type ProjectNotes = {
   address: string;
   remark: string;
@@ -16,6 +42,7 @@ export type ProjectNotes = {
   voidReason: string;
   voidedAt: string;
   drawings: ProjectDrawing[];
+  boms: ProjectBom[];
 };
 
 export function parseProjectNotes(notes: string | null | undefined): ProjectNotes {
@@ -26,7 +53,8 @@ export function parseProjectNotes(notes: string | null | undefined): ProjectNote
     voided: Boolean(meta.voided ?? false),
     voidReason: String(meta.voidReason ?? ""),
     voidedAt: String(meta.voidedAt ?? ""),
-    drawings: Array.isArray(meta.drawings) ? (meta.drawings as ProjectDrawing[]) : []
+    drawings: Array.isArray(meta.drawings) ? (meta.drawings as ProjectDrawing[]) : [],
+    boms: Array.isArray(meta.boms) ? (meta.boms as ProjectBom[]) : []
   };
 }
 
@@ -37,7 +65,8 @@ export function stringifyProjectNotes(notes: Partial<ProjectNotes>) {
     voided: notes.voided ?? false,
     voidReason: notes.voidReason ?? "",
     voidedAt: notes.voidedAt ?? "",
-    drawings: notes.drawings ?? []
+    drawings: notes.drawings ?? [],
+    boms: notes.boms ?? []
   });
 }
 

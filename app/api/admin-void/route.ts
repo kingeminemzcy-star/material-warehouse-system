@@ -36,6 +36,20 @@ function appendVoidMarker(record: Record<string, unknown>, reason: string, actor
   return { remark: JSON.stringify({ ...existing, ...marker }), ...timestampPatch };
 }
 
+function appendRestoreMarker(record: Record<string, unknown>, reason: string) {
+  const now = new Date().toISOString();
+  const marker = { voided: false, restoredReason: reason, restoredAt: now };
+  const timestampPatch = "updatedAt" in record ? { updatedAt: now } : {};
+  const field = "notes" in record ? "notes" : "remark";
+  let existing: Record<string, unknown> = {};
+  try {
+    existing = record[field] ? JSON.parse(String(record[field])) : {};
+  } catch {
+    existing = { remark: record[field] };
+  }
+  return { [field]: JSON.stringify({ ...existing, ...marker }), ...timestampPatch };
+}
+
 export async function POST(request: NextRequest) {
   const auth = await getAuthContext(request);
   if (!auth) return NextResponse.json({ error: "未登录或账号已禁用。" }, { status: 401 });
@@ -71,4 +85,27 @@ export async function POST(request: NextRequest) {
   });
 
   return NextResponse.json({ message: "记录已作废，并已写入操作日志。", record: after });
+}
+
+export async function PATCH(request: NextRequest) {
+  const auth = await getAuthContext(request);
+  if (!auth) return NextResponse.json({ error: "未登录或账号已禁用。" }, { status: 401 });
+  if (!canManageAccounts(auth.profile.role)) {
+    return NextResponse.json({ error: "只有老板/管理员可以恢复关键业务记录。" }, { status: 403 });
+  }
+  const body = (await request.json()) as { entity?: VoidableEntity; id?: string; reason?: string; confirmed?: boolean };
+  if (!body.entity || !body.id || !body.reason?.trim() || !body.confirmed) {
+    return NextResponse.json({ error: "恢复必须提供对象、记录 ID、原因和二次确认。" }, { status: 400 });
+  }
+  const table = voidableTables[body.entity];
+  if (!table) return NextResponse.json({ error: "不支持的恢复对象。" }, { status: 400 });
+  const supabase = createSupabaseAdminClient();
+  const { data: before, error: beforeError } = await supabase.from(table).select("*").eq("id", body.id).maybeSingle();
+  if (beforeError) return NextResponse.json({ error: beforeError.message }, { status: 500 });
+  if (!before) return NextResponse.json({ error: "记录不存在。" }, { status: 404 });
+  const patch = appendRestoreMarker(before as Record<string, unknown>, body.reason);
+  const { data: after, error } = await supabase.from(table).update(patch).eq("id", body.id).select("*").single();
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  await writeOperationLog({ actorId: auth.profile.id, action: "UPDATE", projectId: body.entity === "project" ? body.id : null, remark: `管理员恢复 ${table}：${body.reason}`, before, after, extra: { entity: body.entity, recordId: body.id, restored: true }, request });
+  return NextResponse.json({ message: "记录已恢复，并已写入操作日志。", record: after });
 }

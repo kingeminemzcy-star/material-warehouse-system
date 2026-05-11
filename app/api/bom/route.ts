@@ -6,6 +6,7 @@ import { stringifyJsonMeta } from "@/lib/json-meta";
 import { buildMaterialCode, inferMaterialCategory, normalizeMaterialKey } from "@/lib/material-code";
 import { parseProjectNotes, stringifyProjectNotes, type BomRow, type ProjectBom } from "@/lib/project-meta";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
+import { isAdminOrBoss } from "@/lib/rbac";
 
 type RawBomRow = {
   drawingNo?: string;
@@ -159,7 +160,7 @@ export async function POST(request: NextRequest) {
 export async function PATCH(request: NextRequest) {
   const auth = await getAuthContext(request);
   if (!auth) return NextResponse.json({ error: "未登录或账号已禁用。" }, { status: 401 });
-  const body = (await request.json()) as { projectId?: string; bomId?: string; action?: "setCurrent" | "generatePurchase" };
+  const body = (await request.json()) as { projectId?: string; bomId?: string; action?: "setCurrent" | "generatePurchase"; reason?: string; confirmed?: boolean };
   if (!body.projectId || !body.bomId || !body.action) return NextResponse.json({ error: "缺少项目、BOM 或操作类型。" }, { status: 400 });
 
   const supabase = createSupabaseAdminClient();
@@ -173,11 +174,18 @@ export async function PATCH(request: NextRequest) {
   const now = new Date().toISOString();
 
   if (body.action === "setCurrent") {
+    if (!isAdminOrBoss(auth.profile.role) && !body.confirmed) {
+      return NextResponse.json({ error: "已发布 BOM 版本受锁定保护，切换当前版本必须二次确认。" }, { status: 423 });
+    }
     const boms = notes.boms.map((item) => item.drawingId === bom.drawingId ? { ...item, isCurrent: item.id === bom.id } : item);
     const { data: after, error } = await supabase.from("Project").update({ notes: stringifyProjectNotes({ ...notes, boms }), updatedAt: now }).eq("id", body.projectId).select("*").single();
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     await writeOperationLog({ actorId: auth.profile.id, action: "UPDATE", projectId: body.projectId, remark: `切换当前 BOM：${bom.drawingNo} / ${bom.version}`, before, after, extra: { action: "SET_CURRENT_BOM", bomId: bom.id } });
     return NextResponse.json({ message: "当前 BOM 版本已切换。" });
+  }
+
+  if (!body.confirmed || !body.reason?.trim()) {
+    return NextResponse.json({ error: "BOM 自动生成采购申请必须二次确认并填写原因。" }, { status: 400 });
   }
 
   const { stock } = await loadMaterialIndex();

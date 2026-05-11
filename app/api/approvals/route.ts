@@ -1,6 +1,8 @@
-import { randomUUID } from "crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { canApprove, getAuthContext } from "@/lib/auth";
+import { getRequestIp } from "@/lib/audit";
+import { compactId } from "@/lib/ids";
+import { prisma } from "@/lib/prisma";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 
 type PurchaseStatus = "PENDING_APPROVAL" | "REJECTED" | "APPROVED" | "ORDERED" | "PARTIAL_RECEIVED" | "COMPLETED";
@@ -161,72 +163,77 @@ export async function PATCH(request: NextRequest) {
     id?: string;
     action?: "approve" | "reject";
     reason?: string;
+    confirmed?: boolean;
   };
 
   if (!body.id || !body.action) {
     return NextResponse.json({ error: "缺少审批单 ID 或审批动作。" }, { status: 400 });
   }
 
-  const supabase = createSupabaseAdminClient();
+  if (body.action === "reject" && !body.reason?.trim()) {
+    return NextResponse.json({ error: "拒绝审批必须填写原因。" }, { status: 400 });
+  }
+  if (!body.confirmed) {
+    return NextResponse.json({ error: "审批操作必须二次确认。" }, { status: 400 });
+  }
+
   const nextStatus: PurchaseStatus = body.action === "approve" ? "APPROVED" : "REJECTED";
-
-  const { data: current, error: currentError } = await supabase
-    .from("PurchaseRequest")
-    .select("id,status,projectId")
-    .eq("id", body.id)
-    .maybeSingle();
-
-  if (currentError) {
-    return NextResponse.json({ error: currentError.message }, { status: 500 });
-  }
-
-  if (!current) {
-    return NextResponse.json({ error: "采购申请不存在。" }, { status: 404 });
-  }
-
-  if (current.status !== "PENDING_APPROVAL") {
-    return NextResponse.json({ error: "只有待审批的采购申请可以审批。" }, { status: 409 });
-  }
-
   const now = new Date().toISOString();
-  const { data: updated, error: updateError } = await supabase
-    .from("PurchaseRequest")
-    .update({
-      status: nextStatus,
-      approverId: auth.profile.id,
-      approvedAt: body.action === "approve" ? now : null,
-      rejectedReason: body.action === "reject" ? body.reason || "老板审批拒绝" : null,
-      updatedAt: now
-    })
-    .eq("id", body.id)
-    .select("id,requestNo,status")
-    .single();
 
-  if (updateError) {
-    return NextResponse.json({ error: updateError.message }, { status: 500 });
+  let result;
+  try {
+    result = await prisma.$transaction(async (tx) => {
+    const current = await tx.purchaseRequest.findUnique({ where: { id: body.id } });
+    if (!current) throw new Error("NOT_FOUND");
+    if (current.status !== "PENDING_APPROVAL") throw new Error("ALREADY_APPROVED");
+    const updated = await tx.purchaseRequest.update({
+      where: { id: body.id },
+      data: {
+        status: nextStatus,
+        approverId: auth.profile.id,
+        approvedAt: body.action === "approve" ? new Date(now) : null,
+        rejectedReason: body.action === "reject" ? body.reason || "老板审批拒绝" : null,
+        updatedAt: new Date(now)
+      }
+    });
+    await tx.auditLog.create({
+      data: {
+        id: compactId("log"),
+        actorId: auth.profile.id,
+        action: "APPROVAL",
+        projectId: current.projectId,
+        remark: body.action === "approve" ? "老板审批同意" : `老板审批拒绝：${body.reason || "未填写原因"}`,
+        metadata: {
+          before: current,
+          after: updated,
+          actorId: auth.profile.id,
+          operatedAt: now,
+          ip: getRequestIp(request),
+          purchaseRequestId: body.id,
+          requestNo: updated.requestNo,
+          fromStatus: current.status,
+          toStatus: nextStatus
+        }
+      }
+    });
+      return updated;
+    });
+  } catch (error) {
+    if (error instanceof Error && error.message === "NOT_FOUND") {
+      return NextResponse.json({ error: "采购申请不存在。" }, { status: 404 });
+    }
+    if (error instanceof Error && error.message === "ALREADY_APPROVED") {
+      return NextResponse.json({ error: "只有待审批的采购申请可以审批，禁止重复审批。" }, { status: 409 });
+    }
+    throw error;
   }
-
-  await supabase.from("AuditLog").insert({
-    id: `log_${randomUUID().replace(/-/g, "")}`,
-    actorId: auth.profile.id,
-    action: "APPROVAL",
-    projectId: current.projectId,
-    remark: body.action === "approve" ? "老板审批同意" : `老板审批拒绝：${body.reason || "未填写原因"}`,
-    metadata: {
-      purchaseRequestId: body.id,
-      requestNo: updated.requestNo,
-      fromStatus: current.status,
-      toStatus: nextStatus
-    },
-    createdAt: now
-  });
 
   return NextResponse.json({
     request: {
-      id: updated.id,
-      requestNo: updated.requestNo,
-      status: updated.status,
-      statusText: mapStatus(updated.status as PurchaseStatus)
+      id: result.id,
+      requestNo: result.requestNo,
+      status: result.status,
+      statusText: mapStatus(result.status as PurchaseStatus)
     },
     message: body.action === "approve" ? "审批已同意，状态已更新为 APPROVED。" : "审批已拒绝，状态已更新为 REJECTED。"
   });

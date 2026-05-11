@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAuthContext, roleLabels } from "@/lib/auth";
+import { getAuthContext, roleLabels, type Role } from "@/lib/auth";
+import { permissions } from "@/lib/rbac";
 
 export async function GET(request: NextRequest) {
   const auth = await getAuthContext(request);
@@ -15,7 +16,8 @@ export async function GET(request: NextRequest) {
       role: auth.profile.role,
       roleLabel: roleLabels[auth.profile.role],
       email: auth.email,
-      isActive: auth.profile.isActive
+      isActive: auth.profile.isActive,
+      permissions: Object.fromEntries(Object.entries(permissions).map(([key, roles]) => [key, (roles as Role[]).includes(auth.profile.role)]))
     }
   });
 }

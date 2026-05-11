@@ -122,13 +122,16 @@ export function BomClient() {
   }
 
   async function bomAction(bomId: string, action: "setCurrent" | "generatePurchase") {
+    if (!window.confirm(action === "setCurrent" ? "确认切换当前 BOM 版本？" : "确认按 BOM 缺料生成采购申请？")) return;
+    const reason = action === "generatePurchase" ? window.prompt("请输入生成采购申请原因", "BOM缺料采购") : "切换当前BOM版本";
+    if (!reason?.trim()) return;
     setBusy(true);
     setError(null);
     setMessage(null);
     const response = await fetch("/api/bom", {
       method: "PATCH",
       headers: { "Content-Type": "application/json", ...(await getAuthHeaders()) },
-      body: JSON.stringify({ projectId, bomId, action })
+      body: JSON.stringify({ projectId, bomId, action, confirmed: true, reason })
     });
     const payload = await response.json();
     if (!response.ok) setError(payload.error || "BOM 操作失败。");

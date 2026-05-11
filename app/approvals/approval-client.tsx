@@ -43,6 +43,7 @@ export function ApprovalClient() {
   }
 
   async function submitApproval(id: string, action: "approve" | "reject") {
+    if (!window.confirm(action === "approve" ? "确认同意该采购申请？" : "确认拒绝该采购申请？")) return;
     const reason = action === "reject" ? window.prompt("请输入拒绝原因", "库存或规格需重新确认") : undefined;
     if (action === "reject" && reason === null) return;
 
@@ -53,7 +54,7 @@ export function ApprovalClient() {
     const response = await fetch("/api/approvals", {
       method: "PATCH",
       headers: { "Content-Type": "application/json", ...(await getAuthHeaders()) },
-      body: JSON.stringify({ id, action, reason })
+      body: JSON.stringify({ id, action, reason, confirmed: true })
     });
     const payload = await response.json();
 

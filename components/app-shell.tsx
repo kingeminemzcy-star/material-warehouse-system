@@ -20,6 +20,7 @@ import {
   History
 } from "lucide-react";
 import { CurrentUserCard } from "@/components/current-user-card";
+import { AccessGuard } from "@/components/access-guard";
 import { LogoMark } from "@/components/logo-mark";
 import { VersionFooter } from "@/components/version-footer";
 
@@ -92,7 +93,9 @@ export function AppShell({ children, title, subtitle }: { children: React.ReactN
             </div>
           </div>
         </header>
-        <div className="px-4 py-5 md:px-7">{children}</div>
+        <div className="px-4 py-5 md:px-7">
+          <AccessGuard>{children}</AccessGuard>
+        </div>
         <VersionFooter />
       </main>
     </div>

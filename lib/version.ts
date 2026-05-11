@@ -1,4 +1,4 @@
-export const APP_VERSION = "v0.3.0-alpha";
+export const APP_VERSION = "v0.4.0-alpha";
 
 export type ChangelogEntry = {
   version: string;
@@ -9,6 +9,23 @@ export type ChangelogEntry = {
 };
 
 export const changelog: ChangelogEntry[] = [
+  {
+    version: "v0.4.0-alpha",
+    updatedAt: "2026-05-11",
+    changes: [
+      "进入 Phase 3 系统治理与安全控制，新增统一 RBAC 权限配置。",
+      "页面访问增加权限保护，API 关键操作增加角色校验和危险操作二次确认。",
+      "审批、入库、出库关键库存流程改为数据库事务处理，降低半成功风险。",
+      "新增数据锁定规则：已审批采购、已入库、已出库、已完工项目、已发布 BOM 版本受保护。",
+      "删除保护改为软删除，并为作废记录预留恢复接口。",
+      "审计日志增强，记录修改前后数据、操作人、时间和可获取的 IP。"
+    ],
+    bugFixes: [
+      "补强重复审批、重复入库、负库存拦截。",
+      "项目删除不再物理删除，避免误删历史数据。"
+    ],
+    databaseImpact: "无"
+  },
   {
     version: "v0.3.0-alpha",
     updatedAt: "2026-05-11",

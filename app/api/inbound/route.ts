@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthContext } from "@/lib/auth";
-import { writeOperationLog } from "@/lib/audit";
 import { compactId, docNo } from "@/lib/ids";
 import { stringifyJsonMeta } from "@/lib/json-meta";
 import { parseProjectNotes } from "@/lib/project-meta";
+import { prisma } from "@/lib/prisma";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { inboundSourceFromLabel, zoneFromLabel } from "@/lib/warehouse-maps";
 
@@ -57,48 +57,35 @@ export async function POST(request: NextRequest) {
   }
 
   const sourceProjectId = body.projectId || null;
-  const { data: lot } = sourceProjectId
-    ? await supabase.from("InventoryLot").select("*").eq("materialId", body.materialId).eq("specId", body.specId).eq("zone", zone).eq("locationCode", body.locationCode).eq("sourceProjectId", sourceProjectId).maybeSingle()
-    : await supabase.from("InventoryLot").select("*").eq("materialId", body.materialId).eq("specId", body.specId).eq("zone", zone).eq("locationCode", body.locationCode).is("sourceProjectId", null).maybeSingle();
-  const beforeQty = Number(lot?.quantity ?? 0);
-  const afterQty = beforeQty + Number(body.quantity);
-  let updatedLot = lot;
-  if (lot) {
-    const { data, error } = await supabase.from("InventoryLot").update({ quantity: afterQty, lastInboundAt: now, updatedAt: now }).eq("id", lot.id).select("*").single();
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-    updatedLot = data;
-  } else {
-    const { data, error } = await supabase.from("InventoryLot").insert({ id: compactId("lot"), materialId: body.materialId, specId: body.specId, zone, locationCode: body.locationCode, sourceProjectId, quantity: afterQty, unit: body.unit, lastInboundAt: now, updatedAt: now }).select("*").single();
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-    updatedLot = data;
-  }
-  const { data: record, error } = await supabase.from("InboundRecord").insert({ id: compactId("in"), inboundNo: docNo("IN"), purchaseOrderId: body.purchaseOrderId || null, materialId: body.materialId, specId: body.specId, projectId: body.projectId || null, source, zone, locationCode: body.locationCode, quantity: body.quantity, unit: body.unit, beforeQty, afterQty, operatorId: auth.profile.id, remark: stringifyJsonMeta({ remark: body.remark || "", drawingId: body.drawingId || "" }), createdAt: now }).select("*").single();
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-
-  if (body.purchaseOrderId) {
-    const { data: orderItems } = await supabase
-      .from("PurchaseOrderItem")
-      .select("*")
-      .eq("purchaseOrderId", body.purchaseOrderId);
-    const matching = orderItems?.find((item) => item.materialId === body.materialId && item.specId === body.specId);
-    if (matching) {
-      await supabase
-        .from("PurchaseOrderItem")
-        .update({ receivedQty: Number(matching.receivedQty ?? 0) + Number(body.quantity) })
-        .eq("id", matching.id);
+  try {
+    const result = await prisma.$transaction(async (tx) => {
+      const lot = await tx.inventoryLot.findFirst({ where: { materialId: body.materialId, specId: body.specId, zone, locationCode: body.locationCode, sourceProjectId } });
+      const beforeQty = Number(lot?.quantity ?? 0);
+      const afterQty = beforeQty + Number(body.quantity);
+      const updatedLot = lot
+        ? await tx.inventoryLot.update({ where: { id: lot.id }, data: { quantity: afterQty, lastInboundAt: new Date(now), updatedAt: new Date(now) } })
+        : await tx.inventoryLot.create({ data: { id: compactId("lot"), materialId: body.materialId!, specId: body.specId!, zone, locationCode: body.locationCode!, sourceProjectId, quantity: afterQty, unit: body.unit!, lastInboundAt: new Date(now), updatedAt: new Date(now) } });
+      const record = await tx.inboundRecord.create({ data: { id: compactId("in"), inboundNo: docNo("IN"), purchaseOrderId: body.purchaseOrderId || null, materialId: body.materialId!, specId: body.specId!, projectId: body.projectId || null, source, zone, locationCode: body.locationCode!, quantity: body.quantity!, unit: body.unit!, beforeQty, afterQty, operatorId: auth.profile.id, remark: stringifyJsonMeta({ remark: body.remark || "", drawingId: body.drawingId || "" }), createdAt: new Date(now) } });
+      if (body.purchaseOrderId) {
+        const matching = await tx.purchaseOrderItem.findFirst({ where: { purchaseOrderId: body.purchaseOrderId, materialId: body.materialId, specId: body.specId } });
+        if (matching) {
+          const nextReceived = Number(matching.receivedQty ?? 0) + Number(body.quantity);
+          if (nextReceived > Number(matching.quantity ?? 0)) throw new Error("DUPLICATE_INBOUND");
+          await tx.purchaseOrderItem.update({ where: { id: matching.id }, data: { receivedQty: nextReceived } });
+        }
+        const refreshedItems = await tx.purchaseOrderItem.findMany({ where: { purchaseOrderId: body.purchaseOrderId }, select: { quantity: true, receivedQty: true } });
+        const total = refreshedItems.reduce((sum, item) => sum + Number(item.quantity ?? 0), 0);
+        const received = refreshedItems.reduce((sum, item) => sum + Number(item.receivedQty ?? 0), 0);
+        await tx.purchaseOrder.update({ where: { id: body.purchaseOrderId }, data: { status: total > 0 && received >= total ? "COMPLETED" : "PARTIAL_RECEIVED", updatedAt: new Date(now) } });
+      }
+      await tx.auditLog.create({ data: { id: compactId("log"), actorId: auth.profile.id, action: "INBOUND", materialId: body.materialId, projectId: body.projectId || null, remark: source === "PROJECT_RETURN" ? "项目退料入库，库存增加" : "入库增加库存", metadata: { before: { lot, beforeQty }, after: { lot: updatedLot, record, afterQty }, actorId: auth.profile.id, operatedAt: now, drawingId: body.drawingId || "", source } } });
+      return { record, lot: updatedLot };
+    });
+    return NextResponse.json({ message: "入库成功，库存已增加。", ...result });
+  } catch (error) {
+    if (error instanceof Error && error.message === "DUPLICATE_INBOUND") {
+      return NextResponse.json({ error: "入库数量超过采购单未入库数量，禁止重复入库。" }, { status: 409 });
     }
-    const { data: refreshedItems } = await supabase
-      .from("PurchaseOrderItem")
-      .select("quantity,receivedQty")
-      .eq("purchaseOrderId", body.purchaseOrderId);
-    const total = (refreshedItems ?? []).reduce((sum, item) => sum + Number(item.quantity ?? 0), 0);
-    const received = (refreshedItems ?? []).reduce((sum, item) => sum + Number(item.receivedQty ?? 0), 0);
-    await supabase
-      .from("PurchaseOrder")
-      .update({ status: total > 0 && received >= total ? "COMPLETED" : "PARTIAL_RECEIVED", updatedAt: now })
-      .eq("id", body.purchaseOrderId);
+    throw error;
   }
-
-  await writeOperationLog({ actorId: auth.profile.id, action: "INBOUND", materialId: body.materialId, projectId: body.projectId, remark: source === "PROJECT_RETURN" ? "项目退料入库，库存增加" : "入库增加库存", before: { lot, beforeQty }, after: { lot: updatedLot, record, afterQty }, extra: { drawingId: body.drawingId || "", source } });
-  return NextResponse.json({ message: "入库成功，库存已增加。", record, lot: updatedLot });
 }

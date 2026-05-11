@@ -29,6 +29,7 @@ export async function PATCH(request: NextRequest) {
     id?: string;
     patch?: Record<string, unknown>;
     reason?: string;
+    unlockConfirmed?: boolean;
   };
 
   if (!body.entity || !body.id || !body.patch || !body.reason?.trim()) {
@@ -42,6 +43,16 @@ export async function PATCH(request: NextRequest) {
   const { data: before, error: beforeError } = await supabase.from(table).select("*").eq("id", body.id).maybeSingle();
   if (beforeError) return NextResponse.json({ error: beforeError.message }, { status: 500 });
   if (!before) return NextResponse.json({ error: "记录不存在。" }, { status: 404 });
+  const beforeRecord = before as Record<string, unknown>;
+  const locked =
+    (body.entity === "purchaseRequest" && beforeRecord.status !== "PENDING_APPROVAL")
+    || body.entity === "inboundRecord"
+    || body.entity === "outboundRecord"
+    || (body.entity === "project" && beforeRecord.status === "COMPLETED")
+    || body.entity === "purchaseOrder";
+  if (locked && !body.unlockConfirmed) {
+    return NextResponse.json({ error: "该记录处于锁定状态，仅老板/管理员二次确认解锁后可修改。" }, { status: 423 });
+  }
 
   const patch = {
     ...body.patch,

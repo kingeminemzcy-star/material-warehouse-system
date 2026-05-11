@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthContext } from "@/lib/auth";
-import { writeOperationLog } from "@/lib/audit";
 import { compactId, docNo } from "@/lib/ids";
 import { stringifyJsonMeta } from "@/lib/json-meta";
 import { parseProjectNotes } from "@/lib/project-meta";
+import { prisma } from "@/lib/prisma";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { zoneFromLabel } from "@/lib/warehouse-maps";
 
@@ -24,15 +24,21 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "出库必须选择该项目下的有效图号。" }, { status: 400 });
   }
 
-  const { data: lot } = await supabase.from("InventoryLot").select("*").eq("materialId", body.materialId).eq("specId", body.specId).eq("zone", zone).eq("locationCode", body.locationCode).maybeSingle();
-  const beforeQty = Number(lot?.quantity ?? 0);
-  if (!lot || beforeQty < Number(body.quantity)) return NextResponse.json({ error: `库存不足，当前库存 ${beforeQty}${body.unit}。` }, { status: 400 });
   const now = new Date().toISOString();
-  const afterQty = beforeQty - Number(body.quantity);
-  const { data: updatedLot, error: lotError } = await supabase.from("InventoryLot").update({ quantity: afterQty, lastOutboundAt: now, updatedAt: now }).eq("id", lot.id).select("*").single();
-  if (lotError) return NextResponse.json({ error: lotError.message }, { status: 500 });
-  const { data: record, error } = await supabase.from("OutboundRecord").insert({ id: compactId("out"), outboundNo: docNo("OUT"), materialId: body.materialId, specId: body.specId, projectId: body.projectId, zone, locationCode: body.locationCode, quantity: body.quantity, unit: body.unit, purpose: body.purpose, beforeQty, afterQty, operatorId: auth.profile.id, remark: stringifyJsonMeta({ remark: body.remark || "", drawingId: body.drawingId || "" }), createdAt: now }).select("*").single();
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  await writeOperationLog({ actorId: auth.profile.id, action: "OUTBOUND", materialId: body.materialId, projectId: body.projectId, remark: "出库扣减库存", before: { lot, beforeQty }, after: { lot: updatedLot, record, afterQty }, extra: { drawingId: body.drawingId || "" } });
-  return NextResponse.json({ message: "出库成功，库存已扣减。", record, lot: updatedLot });
+  try {
+    const result = await prisma.$transaction(async (tx) => {
+      const lot = await tx.inventoryLot.findFirst({ where: { materialId: body.materialId, specId: body.specId, zone, locationCode: body.locationCode } });
+      const beforeQty = Number(lot?.quantity ?? 0);
+      if (!lot || beforeQty < Number(body.quantity)) throw new Error(`库存不足，当前库存 ${beforeQty}${body.unit}。`);
+      const afterQty = beforeQty - Number(body.quantity);
+      const updatedLot = await tx.inventoryLot.update({ where: { id: lot.id }, data: { quantity: afterQty, lastOutboundAt: new Date(now), updatedAt: new Date(now) } });
+      const record = await tx.outboundRecord.create({ data: { id: compactId("out"), outboundNo: docNo("OUT"), materialId: body.materialId!, specId: body.specId!, projectId: body.projectId!, zone, locationCode: body.locationCode!, quantity: body.quantity!, unit: body.unit!, purpose: body.purpose!, beforeQty, afterQty, operatorId: auth.profile.id, remark: stringifyJsonMeta({ remark: body.remark || "", drawingId: body.drawingId || "" }), createdAt: new Date(now) } });
+      await tx.auditLog.create({ data: { id: compactId("log"), actorId: auth.profile.id, action: "OUTBOUND", materialId: body.materialId, projectId: body.projectId, remark: "出库扣减库存", metadata: { before: { lot, beforeQty }, after: { lot: updatedLot, record, afterQty }, actorId: auth.profile.id, operatedAt: now, drawingId: body.drawingId || "" } } });
+      return { record, lot: updatedLot };
+    });
+    return NextResponse.json({ message: "出库成功，库存已扣减。", ...result });
+  } catch (error) {
+    if (error instanceof Error && error.message.startsWith("库存不足")) return NextResponse.json({ error: error.message }, { status: 400 });
+    throw error;
+  }
 }

@@ -162,7 +162,7 @@ export async function PATCH(request: NextRequest) {
     remark?: string;
     status?: string;
     reason?: string;
-    action?: "complete";
+    action?: "complete" | "restore";
     forceComplete?: boolean;
   };
 
@@ -176,6 +176,21 @@ export async function PATCH(request: NextRequest) {
   if (!before) return NextResponse.json({ error: "项目不存在。" }, { status: 404 });
 
   const oldNotes = parseProjectNotes(before.notes);
+  if (body.action === "restore") {
+    if (auth.profile.role !== "ADMIN" && auth.profile.role !== "BOSS") {
+      return NextResponse.json({ error: "只有老板/管理员可以恢复项目。" }, { status: 403 });
+    }
+    const now = new Date().toISOString();
+    const { data: after, error } = await supabase.from("Project").update({
+      status: "ACTIVE",
+      notes: stringifyProjectNotes({ ...oldNotes, voided: false, voidReason: "", voidedAt: "" }),
+      updatedAt: now
+    }).eq("id", body.id).select("*").single();
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    await writeOperationLog({ actorId: auth.profile.id, action: "UPDATE", projectId: body.id, remark: `恢复项目：${body.reason}`, before, after, request });
+    return NextResponse.json({ message: "项目已恢复。", project: after });
+  }
+
   if (oldNotes.voided) {
     return NextResponse.json({ error: "项目已作废，不能继续修改。" }, { status: 400 });
   }
@@ -253,29 +268,6 @@ export async function DELETE(request: NextRequest) {
   const { data: before, error: beforeError } = await supabase.from("Project").select("*").eq("id", id).maybeSingle();
   if (beforeError) return NextResponse.json({ error: beforeError.message }, { status: 500 });
   if (!before) return NextResponse.json({ error: "项目不存在。" }, { status: 404 });
-
-  const [{ count: requestCount }, { count: inboundCount }, { count: outboundCount }] = await Promise.all([
-    supabase.from("PurchaseRequest").select("id", { count: "exact", head: true }).eq("projectId", id),
-    supabase.from("InboundRecord").select("id", { count: "exact", head: true }).eq("projectId", id),
-    supabase.from("OutboundRecord").select("id", { count: "exact", head: true }).eq("projectId", id)
-  ]);
-
-  const hasBusiness = Boolean((requestCount ?? 0) + (inboundCount ?? 0) + (outboundCount ?? 0));
-
-  if (!hasBusiness) {
-    const { error } = await supabase.from("Project").delete().eq("id", id);
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-    await writeOperationLog({
-      actorId: auth.profile.id,
-      action: "DELETE",
-      projectId: null,
-      remark: `硬删除无业务关联项目：${reason}`,
-      before,
-      after: null,
-      extra: { entity: "project", recordId: id, hardDelete: true }
-    });
-    return NextResponse.json({ message: "项目无业务关联，已删除。" });
-  }
 
   const oldNotes = parseProjectNotes(before.notes);
   const now = new Date().toISOString();

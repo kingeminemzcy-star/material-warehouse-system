@@ -1,5 +1,14 @@
 import { randomUUID } from "crypto";
+import { NextRequest } from "next/server";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
+
+export function getRequestIp(request?: NextRequest) {
+  if (!request) return null;
+  return request.headers.get("x-forwarded-for")?.split(",")[0]?.trim()
+    || request.headers.get("x-real-ip")
+    || request.headers.get("cf-connecting-ip")
+    || null;
+}
 
 export async function writeOperationLog({
   actorId,
@@ -9,7 +18,8 @@ export async function writeOperationLog({
   remark,
   before,
   after,
-  extra
+  extra,
+  request
 }: {
   actorId: string;
   action:
@@ -28,6 +38,7 @@ export async function writeOperationLog({
   before?: unknown;
   after?: unknown;
   extra?: Record<string, unknown>;
+  request?: NextRequest;
 }) {
   const supabase = createSupabaseAdminClient();
   await supabase.from("AuditLog").insert({
@@ -40,6 +51,9 @@ export async function writeOperationLog({
     metadata: {
       before,
       after,
+      actorId,
+      operatedAt: new Date().toISOString(),
+      ip: getRequestIp(request),
       ...extra
     },
     createdAt: new Date().toISOString()

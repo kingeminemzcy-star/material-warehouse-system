@@ -1,7 +1,43 @@
-.next
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Dependencies
 node_modules
+jspm_packages/
+
+# Environment
 .env
 .env*.local
+!.env.example
+
+# Next.js / build output
+.next
+out
 dist
 coverage
+.nyc_output
+*.tsbuildinfo
+
+# Tool caches
+.cache
+.parcel-cache
+.eslintcache
+.stylelintcache
+.turbo
+.vite/
+vite.config.js.timestamp-*
+vite.config.ts.timestamp-*
+
+# Runtime data
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# Local databases
 prisma/dev.db

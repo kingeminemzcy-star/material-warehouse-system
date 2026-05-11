@@ -107,6 +107,29 @@ function createMappingFromHeaders(headers: string[]) {
   return Object.fromEntries(headers.map((header, index) => [index, matchHeader(header)])) as BomMapping;
 }
 
+function mergeStoredMapping(headers: string[], detectedMapping: BomMapping) {
+  const storedMapping = readStoredMapping();
+  if (!storedMapping || Object.keys(storedMapping).length !== headers.length) return detectedMapping;
+  return Object.fromEntries(headers.map((_, index) => [
+    index,
+    detectedMapping[index] === "ignore" ? storedMapping[index] ?? "ignore" : detectedMapping[index]
+  ])) as BomMapping;
+}
+
+function missingRequiredFields(mapping: BomMapping) {
+  const values = Object.values(mapping);
+  const missing: string[] = [];
+  if (!values.includes("materialName")) missing.push("名称");
+  if (!values.includes("quantity")) missing.push("数量");
+  if (!values.includes("spec")) missing.push("规格型号");
+  return missing;
+}
+
+function rowPreview(row: string[]) {
+  const preview = row.filter(Boolean).slice(0, 8).join("｜");
+  return preview || "空行";
+}
+
 function normalizeTableRow(row: unknown, line: number, fileName: string): { row?: string[]; issue?: BomParseIssue } {
   if (Array.isArray(row)) {
     const cells = row.map((cell) => String(cell ?? "").trim());
@@ -131,6 +154,7 @@ function normalizeTable(table: unknown, fileName: string): { rows: string[][]; i
   table.forEach((row, index) => {
     const result = normalizeTableRow(row, index + 1, fileName);
     if (result.row) rows.push(result.row);
+    else if (result.issue?.reason === "空行已跳过" || result.issue?.reason === "对象行为空，已跳过") rows.push([]);
     if (result.issue && result.issue.reason !== "空行已跳过") issues.push(result.issue);
   });
   return { rows, issues };
@@ -180,8 +204,7 @@ function detectBomTable(rows: string[][], fileName: string): ParsedBomTable {
   }
   const headers = rows[best.index] ?? [];
   const detectedMapping = createMappingFromHeaders(headers);
-  const storedMapping = readStoredMapping();
-  const mapping = storedMapping && Object.keys(storedMapping).length === headers.length ? storedMapping : detectedMapping;
+  const mapping = mergeStoredMapping(headers, detectedMapping);
   return {
     fileName,
     rows,
@@ -196,12 +219,11 @@ function detectBomTable(rows: string[][], fileName: string): ParsedBomTable {
 function updateTableHeader(table: ParsedBomTable, headerIndex: number): ParsedBomTable {
   const headers = table.rows[headerIndex] ?? [];
   const detectedMapping = createMappingFromHeaders(headers);
-  const storedMapping = readStoredMapping();
   return {
     ...table,
     headerIndex,
     headers,
-    mapping: storedMapping && Object.keys(storedMapping).length === headers.length ? storedMapping : detectedMapping,
+    mapping: detectedMapping,
     projectCode: extractProjectCode(table.rows, headerIndex),
     issues: []
   };
@@ -270,12 +292,8 @@ function buildRowsFromMapping(table: ParsedBomTable, mapping: BomMapping): { row
     }
     parsedRows.push(parsedRow);
   });
-  if (!Object.values(mapping).includes("materialName")) {
-    issues.unshift({ fileName: table.fileName, line: table.headerIndex + 1, reason: "缺失字段：名称/材料名称" });
-  }
-  if (!Object.values(mapping).includes("quantity")) {
-    issues.unshift({ fileName: table.fileName, line: table.headerIndex + 1, reason: "缺失字段：数量" });
-  }
+  const missing = missingRequiredFields(mapping);
+  if (missing.length) issues.unshift({ fileName: table.fileName, line: table.headerIndex + 1, reason: `缺失字段：${missing.join("、")}` });
   return { rows: parsedRows, issues };
 }
 
@@ -295,6 +313,7 @@ export function BomClient() {
 
   const drawingNo = rows[0]?.drawingNo ?? "";
   const currentBom = useMemo(() => boms.find((bom) => bom.isCurrent) ?? boms[0], [boms]);
+  const headerCandidates = useMemo(() => parsedTable?.rows.slice(0, HEADER_SCAN_LIMIT).map((row, index) => ({ row, index, preview: rowPreview(row), score: scoreHeaderRow(row) })) ?? [], [parsedTable]);
 
   async function loadProjects() {
     const payload = await fetch("/api/projects", { headers: await getAuthHeaders(), cache: "no-store" }).then((res) => res.json());
@@ -332,7 +351,8 @@ export function BomClient() {
       setRows(parsed.rows);
       setParseIssues(nextIssues);
       if (!parsed.rows.length) {
-        setError(`文件 ${file.name} 未解析到有效 BOM 明细，请检查表头识别和字段映射。`);
+        const missing = missingRequiredFields(nextTable.mapping);
+        setError(missing.length ? `文件 ${file.name} 未解析到有效 BOM 明细，缺失字段：${missing.join("、")}。请手动选择表头行或调整字段映射。` : `文件 ${file.name} 未解析到有效 BOM 明细，请检查表头识别和字段映射。`);
         return;
       }
       setMessage(`文件 ${file.name} 解析完成，识别表头在第 ${nextTable.headerIndex + 1} 行，预览 ${parsed.rows.length} 行${nextIssues.length ? `，跳过 ${nextIssues.length} 行` : ""}。`);
@@ -353,7 +373,8 @@ export function BomClient() {
     setRows(parsed.rows);
     setParseIssues(nextIssues);
     if (!parsed.rows.length) {
-      setError("当前字段映射未生成有效 BOM 明细，请检查名称和数量字段。");
+      const missing = missingRequiredFields(nextMapping);
+      setError(missing.length ? `当前字段映射缺失：${missing.join("、")}。请调整字段映射。` : "当前字段映射未生成有效 BOM 明细，请检查名称、数量和数据区域。");
       setMessage(null);
       return;
     }
@@ -363,6 +384,10 @@ export function BomClient() {
 
   function selectHeaderRow(headerIndex: number) {
     if (!parsedTable) return;
+    if (headerIndex < 0) {
+      setError("请选择一个包含字段名称的表头行。");
+      return;
+    }
     const nextTable = updateTableHeader(parsedTable, headerIndex);
     const parsed = buildRowsFromMapping(nextTable, nextTable.mapping);
     const nextIssues = [...nextTable.issues, ...parsed.issues];
@@ -371,7 +396,8 @@ export function BomClient() {
     setRows(parsed.rows);
     setParseIssues(nextIssues);
     if (!parsed.rows.length) {
-      setError(`已切换到第 ${headerIndex + 1} 行作为表头，但未生成有效明细，请检查字段映射。`);
+      const missing = missingRequiredFields(nextTable.mapping);
+      setError(missing.length ? `已切换到第 ${headerIndex + 1} 行作为表头，但缺失字段：${missing.join("、")}。请在字段映射中补齐。` : `已切换到第 ${headerIndex + 1} 行作为表头，但未生成有效明细，请检查数据区域。`);
       setMessage(null);
       return;
     }
@@ -490,12 +516,12 @@ export function BomClient() {
                 <span className="form-label">手动切换表头行</span>
                 <select className="field" value={parsedTable.headerIndex} onChange={(event) => selectHeaderRow(Number(event.target.value))}>
                   <option value={-1}>请选择表头行</option>
-                  {parsedTable.rows.slice(0, HEADER_SCAN_LIMIT).map((row, index) => {
-                    const preview = row.filter(Boolean).slice(0, 8).join(" / ");
-                    if (!preview) return null;
-                    const score = scoreHeaderRow(row);
-                    return <option key={`${index}-${preview}`} value={index}>第 {index + 1} 行：{preview} {score.requiredMatchCount ? `（命中 ${score.requiredMatchCount} 个关键字段）` : ""}</option>;
-                  })}
+                  {headerCandidates.length === 0 ? <option value={-2} disabled>未读取到前 30 行</option> : null}
+                  {headerCandidates.map(({ index, preview, score }) => (
+                    <option key={`${index}-${preview}`} value={index}>
+                      第 {index + 1} 行：{preview} {score.requiredMatchCount ? `（命中 ${score.requiredMatchCount} 个关键字段）` : ""}
+                    </option>
+                  ))}
                 </select>
               </label>
             </div>

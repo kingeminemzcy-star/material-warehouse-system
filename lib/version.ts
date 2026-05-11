@@ -1,4 +1,4 @@
-export const APP_VERSION = "v0.5.2-alpha";
+export const APP_VERSION = "v0.5.3-alpha";
 
 export type ChangelogEntry = {
   version: string;
@@ -9,6 +9,21 @@ export type ChangelogEntry = {
 };
 
 export const changelog: ChangelogEntry[] = [
+  {
+    version: "v0.5.3-alpha",
+    updatedAt: "2026-05-11",
+    changes: [
+      "BOM 上传后固定读取前 30 行作为可选表头候选，手动切换表头行下拉框显示行号和行内容预览。",
+      "用户手动选择表头行后，系统立即重新解析字段映射并刷新 BOM 预览。",
+      "自动识别成功时直接生成 BOM 预览，识别失败时保留候选行供用户手动选择。"
+    ],
+    bugFixes: [
+      "修复 BOM 手动切换表头行下拉框为空，导致用户无法继续生成 BOM 的问题。",
+      "修复手动切换表头时可能沿用旧映射模板，导致字段映射没有按当前表头刷新的问题。",
+      "补充缺失字段提示，避免无反馈状态和无效解析。"
+    ],
+    databaseImpact: "无"
+  },
   {
     version: "v0.5.2-alpha",
     updatedAt: "2026-05-11",

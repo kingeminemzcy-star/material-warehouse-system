@@ -10,6 +10,7 @@ type Project = { id: string; name: string; code: string };
 type BomInputRow = { drawingNo: string; materialName: string; spec: string; material: string; unit: string; quantity: number; remark: string };
 type BomAnalysisRow = BomInputRow & { id: string; materialCode: string; matchedMaterialId?: string; matchedSpecId?: string; currentStock: number; shortageQty: number; matchStatus: string };
 type Bom = { id: string; drawingNo: string; version: string; isCurrent: boolean; uploadedAt: string; rows: BomInputRow[]; analysis: BomAnalysisRow[] };
+type BomParseIssue = { fileName: string; line: number; reason: string };
 
 const headerMap = {
   drawingNo: ["图号", "drawingNo", "drawing", "图纸编号"],
@@ -35,7 +36,7 @@ function parseCsv(text: string) {
     }
     cells.push(current.trim());
     return cells.map((cell) => cell.replace(/^"|"$/g, ""));
-  }).filter((row) => row.some(Boolean));
+  });
 }
 
 function pick(row: string[], headers: string[], key: keyof typeof headerMap) {
@@ -43,18 +44,67 @@ function pick(row: string[], headers: string[], key: keyof typeof headerMap) {
   return index >= 0 ? row[index] ?? "" : "";
 }
 
-function toBomRows(table: string[][]): BomInputRow[] {
+function normalizeTableRow(row: unknown, line: number, fileName: string): { row?: string[]; issue?: BomParseIssue } {
+  if (Array.isArray(row)) {
+    const cells = row.map((cell) => String(cell ?? "").trim());
+    return cells.some(Boolean) ? { row: cells } : { issue: { fileName, line, reason: "空行已跳过" } };
+  }
+  if (row && typeof row === "object") {
+    const cells = Object.values(row as Record<string, unknown>).map((cell) => String(cell ?? "").trim());
+    return cells.some(Boolean) ? { row: cells } : { issue: { fileName, line, reason: "对象行为空，已跳过" } };
+  }
+  if (row == null || row === "") {
+    return { issue: { fileName, line, reason: "空行已跳过" } };
+  }
+  return { issue: { fileName, line, reason: `无效行类型 ${typeof row}，已跳过` } };
+}
+
+function normalizeTable(table: unknown, fileName: string): { rows: string[][]; issues: BomParseIssue[] } {
+  if (!Array.isArray(table)) {
+    return { rows: [], issues: [{ fileName, line: 0, reason: "文件解析结果不是表格结构" }] };
+  }
+  const rows: string[][] = [];
+  const issues: BomParseIssue[] = [];
+  table.forEach((row, index) => {
+    const result = normalizeTableRow(row, index + 1, fileName);
+    if (result.row) rows.push(result.row);
+    if (result.issue && result.issue.reason !== "空行已跳过") issues.push(result.issue);
+  });
+  return { rows, issues };
+}
+
+function toBomRows(table: string[][], fileName: string): { rows: BomInputRow[]; issues: BomParseIssue[] } {
   const [headerRow, ...rows] = table;
   const headers = headerRow ?? [];
-  return rows.map((row) => ({
-    drawingNo: pick(row, headers, "drawingNo"),
-    materialName: pick(row, headers, "materialName"),
-    spec: pick(row, headers, "spec"),
-    material: pick(row, headers, "material"),
-    unit: pick(row, headers, "unit") || "件",
-    quantity: Number(pick(row, headers, "quantity") || 0),
-    remark: pick(row, headers, "remark")
-  })).filter((row) => row.drawingNo && row.materialName && row.quantity > 0);
+  if (!headers.some(Boolean)) {
+    return { rows: [], issues: [{ fileName, line: 1, reason: "未识别到表头" }] };
+  }
+  const parsedRows: BomInputRow[] = [];
+  const issues: BomParseIssue[] = [];
+  rows.forEach((row, index) => {
+    const line = index + 2;
+    const quantityText = pick(row, headers, "quantity");
+    const quantity = Number(quantityText || 0);
+    const parsedRow = {
+      drawingNo: pick(row, headers, "drawingNo"),
+      materialName: pick(row, headers, "materialName"),
+      spec: pick(row, headers, "spec"),
+      material: pick(row, headers, "material"),
+      unit: pick(row, headers, "unit") || "件",
+      quantity,
+      remark: pick(row, headers, "remark")
+    };
+    if (!parsedRow.drawingNo || !parsedRow.materialName) {
+      issues.push({ fileName, line, reason: "缺少图号或材料名称，已跳过" });
+      return;
+    }
+    if (!Number.isFinite(quantity) || quantity <= 0) {
+      issues.push({ fileName, line, reason: `数量无效：${quantityText || "空"}，已跳过` });
+      return;
+    }
+    parsedRows.push(parsedRow);
+  });
+  return { rows: parsedRows, issues };
 }
 
 export function BomClient() {
@@ -66,6 +116,8 @@ export function BomClient() {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [fileName, setFileName] = useState("");
+  const [parseIssues, setParseIssues] = useState<BomParseIssue[]>([]);
 
   const drawingNo = rows[0]?.drawingNo ?? "";
   const currentBom = useMemo(() => boms.find((bom) => bom.isCurrent) ?? boms[0], [boms]);
@@ -88,14 +140,29 @@ export function BomClient() {
   async function parseFile(file: File) {
     setError(null);
     setMessage(null);
-    if (/\.xlsx?$/i.test(file.name)) {
-      const readXlsxFile = (await import("read-excel-file/browser")).default;
-      const table = await readXlsxFile(file) as unknown as Array<Array<unknown>>;
-      setRows(toBomRows(table.map((row) => row.map((cell) => String(cell ?? "")))));
-      return;
+    setRows([]);
+    setParseIssues([]);
+    setFileName(file.name);
+    try {
+      const rawTable = /\.xlsx?$/i.test(file.name)
+        ? await (await import("read-excel-file/browser")).default(file)
+        : parseCsv(await file.text());
+      const normalized = normalizeTable(rawTable, file.name);
+      const parsed = toBomRows(normalized.rows, file.name);
+      const nextIssues = [...normalized.issues, ...parsed.issues];
+      setRows(parsed.rows);
+      setParseIssues(nextIssues);
+      if (!parsed.rows.length) {
+        setError(`文件 ${file.name} 未解析到有效 BOM 明细，请检查表头和数量字段。`);
+        return;
+      }
+      setMessage(`文件 ${file.name} 解析完成，预览 ${parsed.rows.length} 行${nextIssues.length ? `，跳过 ${nextIssues.length} 行` : ""}。`);
+    } catch (caughtError) {
+      const reason = caughtError instanceof Error ? caughtError.message : "未知解析错误";
+      setRows([]);
+      setParseIssues([{ fileName: file.name, line: 0, reason }]);
+      setError(`文件 ${file.name} 解析失败：${reason}`);
     }
-    const text = await file.text();
-    setRows(toBomRows(parseCsv(text)));
   }
 
   async function uploadBom() {
@@ -197,10 +264,24 @@ export function BomClient() {
           <div className="mt-4 rounded-md bg-field px-3 py-3 text-xs font-semibold text-ink/58">
             标准字段：图号、材料名称、规格、材质、单位、数量、备注。
           </div>
+          {parseIssues.length ? (
+            <div className="mt-4 rounded-md border border-amber-200 bg-amber-50 px-3 py-3 text-xs font-semibold text-amber-900">
+              <div className="mb-2 text-sm font-black">解析提示</div>
+              <div className="grid gap-1">
+                {parseIssues.slice(0, 8).map((issue, index) => (
+                  <div key={`${issue.fileName}-${issue.line}-${index}`}>{issue.fileName} 第 {issue.line || "-"} 行：{issue.reason}</div>
+                ))}
+                {parseIssues.length > 8 ? <div>还有 {parseIssues.length - 8} 条提示未显示。</div> : null}
+              </div>
+            </div>
+          ) : null}
         </div>
 
         <div className="rounded-lg border border-line bg-white p-4">
-          <h2 className="text-lg font-black text-ink">上传预览</h2>
+          <div className="flex flex-col gap-1 md:flex-row md:items-end md:justify-between">
+            <h2 className="text-lg font-black text-ink">上传预览</h2>
+            {fileName ? <div className="text-sm font-semibold text-ink/55">{fileName} / {rows.length} 行有效数据</div> : null}
+          </div>
           <div className="mt-3 overflow-x-auto">
             <table className="w-full min-w-[760px] text-left">
               <thead className="bg-field"><tr>{["图号","材料名称","规格","材质","单位","数量","备注"].map((item,index)=><th key={`${item}-${index}`} className="px-4 py-3 text-sm font-black">{item}</th>)}</tr></thead>

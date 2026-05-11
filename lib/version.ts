@@ -1,4 +1,4 @@
-export const APP_VERSION = "v0.4.0-alpha";
+export const APP_VERSION = "v0.4.1-alpha";
 
 export type ChangelogEntry = {
   version: string;
@@ -9,6 +9,19 @@ export type ChangelogEntry = {
 };
 
 export const changelog: ChangelogEntry[] = [
+  {
+    version: "v0.4.1-alpha",
+    updatedAt: "2026-05-11",
+    changes: [
+      "BOM 导入增加上传数据预览，解析完成后显示有效行数和被跳过行数。",
+      "BOM 文件解析兼容 Excel/CSV 的数组行和对象行结果，空行与异常行会被安全跳过。"
+    ],
+    bugFixes: [
+      "修复 BOM 导入时单行解析结果不是数组导致 row.map is not a function 的运行时错误。",
+      "解析失败时改为显示友好错误提示，并展示错误文件名、行号和原因，避免页面崩溃。"
+    ],
+    databaseImpact: "无"
+  },
   {
     version: "v0.4.0-alpha",
     updatedAt: "2026-05-11",

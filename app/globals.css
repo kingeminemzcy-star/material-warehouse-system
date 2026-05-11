@@ -32,7 +32,29 @@ textarea {
 }
 
 .field {
-  @apply min-h-12 w-full rounded-md border border-line bg-white px-3 py-2 text-base outline-none transition focus:border-action focus:ring-2 focus:ring-action/20;
+  @apply min-h-12 w-full rounded-md border border-line bg-white px-3 py-2 text-base text-ink outline-none transition focus:border-action focus:ring-2 focus:ring-action/20;
+  color-scheme: light;
+}
+
+select.field {
+  @apply cursor-pointer bg-white text-ink hover:border-action/40;
+  color: #182335;
+  background-color: #ffffff;
+}
+
+select.field option {
+  color: #182335;
+  background-color: #ffffff;
+}
+
+select.field option:checked {
+  color: #ffffff;
+  background-color: #1d4ed8;
+}
+
+select.field option:hover {
+  color: #ffffff;
+  background-color: #2563eb;
 }
 
 .btn-primary {

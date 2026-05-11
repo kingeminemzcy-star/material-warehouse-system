@@ -1,4 +1,4 @@
-export const APP_VERSION = "v0.5.1-alpha";
+export const APP_VERSION = "v0.5.2-alpha";
 
 export type ChangelogEntry = {
   version: string;
@@ -9,6 +9,19 @@ export type ChangelogEntry = {
 };
 
 export const changelog: ChangelogEntry[] = [
+  {
+    version: "v0.5.2-alpha",
+    updatedAt: "2026-05-11",
+    changes: [
+      "统一全系统 select/dropdown 表单控件的浅色主题，保持与蓝色工业风 UI 一致。",
+      "BOM 手动切换表头行和字段映射下拉框在手机端、桌面端统一使用白底深灰文字。"
+    ],
+    bugFixes: [
+      "修复部分浏览器或深色模式下 select 下拉框黑底、文字不可见的问题。",
+      "为 select 选中项和悬停状态补充系统蓝色样式。"
+    ],
+    databaseImpact: "无"
+  },
   {
     version: "v0.5.1-alpha",
     updatedAt: "2026-05-11",

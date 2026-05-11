@@ -141,8 +141,8 @@ export function MaterialsClient() {
           </Field>
           <Field label="分类">
             <select className="field" value={form.category} onChange={(event) => setForm({ ...form, category: event.target.value })}>
-              {categoryOptions.map((item) => (
-                <option key={item.value}>{item.label}</option>
+              {categoryOptions.map((item, index) => (
+                <option key={`${item.value}-${index}`}>{item.label}</option>
               ))}
             </select>
           </Field>
@@ -157,8 +157,8 @@ export function MaterialsClient() {
           </Field>
           <Field label="单位">
             <select className="field" value={form.unit} onChange={(event) => setForm({ ...form, unit: event.target.value })}>
-              {units.map((unit) => (
-                <option key={unit}>{unit}</option>
+              {units.map((unit, index) => (
+                <option key={`${unit}-${index}`}>{unit}</option>
               ))}
             </select>
           </Field>
@@ -204,8 +204,8 @@ export function MaterialsClient() {
           />
           <select className="field" value={category} onChange={(event) => setCategory(event.target.value)}>
             <option>全部分类</option>
-            {categoryOptions.map((item) => (
-              <option key={item.value}>{item.label}</option>
+            {categoryOptions.map((item, index) => (
+              <option key={`${item.value}-${index}`}>{item.label}</option>
             ))}
           </select>
           <input className="field" placeholder="库位/库区" value={location} onChange={(event) => setLocation(event.target.value)} />
@@ -219,6 +219,7 @@ export function MaterialsClient() {
         ) : (
           <DataTable
             columns={["编码", "名称", "分类", "规格", "材质", "尺寸", "单位", "最低库存", "二维码"]}
+            rowKeys={filtered.map((item, index) => `${item.specId || item.id || "material"}-${index}`)}
             rows={filtered.map((item) => [
               item.code,
               item.name,
@@ -228,7 +229,7 @@ export function MaterialsClient() {
               item.dimensions,
               item.unit,
               item.minStock,
-              item.qrCode ? <img key={item.specId || item.id} src={item.qrCode} alt="材料二维码" className="h-16 w-16" /> : <QrCode key={item.specId || item.id} size={28} />
+              item.qrCode ? <img src={item.qrCode} alt="材料二维码" className="h-16 w-16" /> : <QrCode size={28} />
             ])}
           />
         )}

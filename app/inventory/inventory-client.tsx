@@ -63,20 +63,20 @@ export function InventoryClient() {
           <input className="field md:col-span-2" placeholder="名称、规格、材质、尺寸、库位" value={keyword} onChange={(event) => setKeyword(event.target.value)} />
           <select className="field" value={category} onChange={(event) => setCategory(event.target.value)}>
             <option>全部分类</option>
-            {categoryOptions.map((item) => (
-              <option key={item.value}>{item.label}</option>
+            {categoryOptions.map((item, index) => (
+              <option key={`${item.value}-${index}`}>{item.label}</option>
             ))}
           </select>
           <select className="field" value={zone} onChange={(event) => setZone(event.target.value)}>
             <option>全部库区</option>
-            {zoneOptions.map((item) => (
-              <option key={item.value}>{item.label}</option>
+            {zoneOptions.map((item, index) => (
+              <option key={`${item.value}-${index}`}>{item.label}</option>
             ))}
           </select>
           <select className="field" value={project} onChange={(event) => setProject(event.target.value)}>
             <option>全部项目</option>
-            {projects.map((item) => (
-              <option key={item.id}>{item.name}</option>
+            {projects.map((item, index) => (
+              <option key={`${item.id}-${index}`}>{item.name}</option>
             ))}
             <option>通用库存</option>
             <option>工程退料</option>
@@ -113,14 +113,14 @@ export function InventoryClient() {
           <table className="w-full min-w-[980px] border-collapse text-left">
             <thead className="bg-field">
               <tr>
-                {["材料", "分类", "规格尺寸", "当前库存", "单位", "库位", "来源工程", "最近入库", "最近出库", "状态"].map((column) => (
-                  <th key={column} className="px-4 py-3 text-sm font-black text-ink">{column}</th>
+                {["材料", "分类", "规格尺寸", "当前库存", "单位", "库位", "来源工程", "最近入库", "最近出库", "状态"].map((column, index) => (
+                  <th key={`${column}-${index}`} className="px-4 py-3 text-sm font-black text-ink">{column}</th>
                 ))}
               </tr>
             </thead>
             <tbody className="divide-y divide-line">
-              {filtered.map((item) => (
-                <tr key={item.id}>
+              {filtered.map((item, index) => (
+                <tr key={`${item.id || "inventory"}-${index}`}>
                   <td className="px-4 py-3 text-sm text-ink/78">{item.name}</td>
                   <td className="px-4 py-3 text-sm text-ink/78">{item.categoryText}</td>
                   <td className="px-4 py-3 text-sm text-ink/78">{`${item.spec} / ${item.material} / ${item.dimensions}`}</td>

@@ -15,10 +15,12 @@ import {
   Users,
   Ruler,
   Truck,
-  Warehouse
+  Warehouse,
+  History
 } from "lucide-react";
 import { CurrentUserCard } from "@/components/current-user-card";
 import { LogoMark } from "@/components/logo-mark";
+import { VersionFooter } from "@/components/version-footer";
 
 const nav = [
   { href: "/dashboard", label: "首页", icon: Home },
@@ -35,7 +37,8 @@ const nav = [
   { href: "/accounts", label: "账号管理", icon: Users },
   { href: "/suppliers", label: "供应商", icon: Truck },
   { href: "/units", label: "单位管理", icon: Ruler },
-  { href: "/photos", label: "照片", icon: PackageCheck }
+  { href: "/photos", label: "照片", icon: PackageCheck },
+  { href: "/changelog", label: "更新日志", icon: History }
 ];
 
 export function AppShell({ children, title, subtitle }: { children: React.ReactNode; title: string; subtitle?: string }) {
@@ -88,6 +91,7 @@ export function AppShell({ children, title, subtitle }: { children: React.ReactN
           </div>
         </header>
         <div className="px-4 py-5 md:px-7">{children}</div>
+        <VersionFooter />
       </main>
     </div>
   );

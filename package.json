@@ -1,6 +1,6 @@
 {
   "name": "material-warehouse-system",
-  "version": "0.1.0",
+  "version": "0.1.1-alpha",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -9,7 +9,8 @@
     "lint": "eslint . --max-warnings=0",
     "prisma:generate": "prisma generate",
     "prisma:push": "prisma db push",
-    "prisma:studio": "prisma studio"
+    "prisma:studio": "prisma studio",
+    "release:tag": "git tag v$npm_package_version"
   },
   "dependencies": {
     "@prisma/client": "^5.22.0",

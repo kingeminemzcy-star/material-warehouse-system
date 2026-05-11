@@ -36,8 +36,8 @@ export default function DashboardPage() {
   return (
     <AppShell title="工作台" subtitle="围绕采购、入库、出库、库存和审计的日常操作入口">
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        {modules.map((module) => (
-          <ModuleCard key={module.href} {...module} />
+        {modules.map((module, index) => (
+          <ModuleCard key={`${module.href}-${module.title}-${index}`} {...module} />
         ))}
       </div>
       <div className="mt-6 grid gap-6 xl:grid-cols-2">
@@ -45,6 +45,7 @@ export default function DashboardPage() {
           <h2 className="mb-3 text-lg font-black text-ink">待审批采购</h2>
           <DataTable
             columns={["单号", "工程", "材料", "数量", "状态"]}
+            rowKeys={purchaseRequests.map((item, index) => `${item.no}-${index}`)}
             rows={purchaseRequests.map((item) => [
               item.no,
               item.project,
@@ -58,6 +59,9 @@ export default function DashboardPage() {
           <h2 className="mb-3 text-lg font-black text-ink">低库存提醒</h2>
           <DataTable
             columns={["材料", "规格", "库位", "库存", "预警"]}
+            rowKeys={inventory
+              .filter((item) => item.stock <= item.minStock + 2)
+              .map((item, index) => `${item.name}-${item.spec}-${item.zone}-${index}`)}
             rows={inventory
               .filter((item) => item.stock <= item.minStock + 2)
               .map((item) => [item.name, item.spec, item.zone, `${item.stock} ${item.unit}`, `${item.minStock} ${item.unit}`])}

@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Loader2, LockKeyhole, Mail, ShieldCheck } from "lucide-react";
 import { createSupabaseBrowserClient } from "@/lib/supabase";
 import { LogoMark } from "@/components/logo-mark";
+import { APP_VERSION } from "@/lib/version";
 
 export function LoginClient() {
   const router = useRouter();
@@ -118,7 +119,10 @@ export function LoginClient() {
           </div>
         </div>
 
-        <p className="mt-6 text-center text-sm font-semibold tracking-[0.2em] text-blue-100/70">智造未来 · 数据驱动 · 高效协同</p>
+        <div className="mt-6 text-center">
+          <p className="text-sm font-semibold tracking-[0.2em] text-blue-100/70">智造未来 · 数据驱动 · 高效协同</p>
+          <p className="mt-3 text-xs font-semibold text-blue-100/52">{APP_VERSION}</p>
+        </div>
       </section>
 
       <style jsx>{`

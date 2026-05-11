@@ -2,6 +2,7 @@ import { randomUUID } from "crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { canManageProjects, getAuthContext, type Role } from "@/lib/auth";
 import { writeOperationLog } from "@/lib/audit";
+import { parseProjectNotes, stringifyProjectNotes } from "@/lib/project-meta";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 
 type ProjectStatus = "PLANNING" | "ACTIVE" | "PAUSED" | "COMPLETED";
@@ -45,22 +46,6 @@ function statusFromLabel(label: string): ProjectStatus {
   return map[label] ?? "ACTIVE";
 }
 
-function parseNotes(notes: string | null) {
-  if (!notes) return { address: "", remark: "", voided: false, voidReason: "", voidedAt: "" };
-  try {
-    const parsed = JSON.parse(notes) as { address?: string; remark?: string; voided?: boolean; voidReason?: string; voidedAt?: string };
-    return {
-      address: parsed.address ?? "",
-      remark: parsed.remark ?? notes,
-      voided: parsed.voided ?? false,
-      voidReason: parsed.voidReason ?? "",
-      voidedAt: parsed.voidedAt ?? ""
-    };
-  } catch {
-    return { address: "", remark: notes, voided: false, voidReason: "", voidedAt: "" };
-  }
-}
-
 export async function GET(request: NextRequest) {
   const auth = await getAuthContext(request);
   if (!auth) return NextResponse.json({ error: "未登录或账号已禁用。" }, { status: 401 });
@@ -84,7 +69,7 @@ export async function GET(request: NextRequest) {
   return NextResponse.json({
     managers,
     projects: ((projects ?? []) as ProjectRow[]).map((project) => {
-      const notes = parseNotes(project.notes);
+      const notes = parseProjectNotes(project.notes);
       return {
         id: project.id,
         code: project.code,
@@ -95,6 +80,7 @@ export async function GET(request: NextRequest) {
         voided: notes.voided,
         voidReason: notes.voidReason,
         voidedAt: notes.voidedAt,
+        drawingCount: notes.drawings.length,
         managerId: project.managerId,
         manager: project.managerId ? managerById.get(project.managerId)?.name ?? "-" : "-",
         status: project.status,
@@ -137,7 +123,7 @@ export async function POST(request: NextRequest) {
       customer: body.customer || null,
       managerId,
       status: statusFromLabel(body.status ?? "ACTIVE"),
-      notes: JSON.stringify({ address: body.address ?? "", remark: body.remark ?? "" }),
+      notes: stringifyProjectNotes({ address: body.address ?? "", remark: body.remark ?? "" }),
       createdAt: now,
       updatedAt: now
     })
@@ -177,6 +163,7 @@ export async function PATCH(request: NextRequest) {
     status?: string;
     reason?: string;
     action?: "complete";
+    forceComplete?: boolean;
   };
 
   if (!body.id || !body.reason?.trim()) {
@@ -188,7 +175,31 @@ export async function PATCH(request: NextRequest) {
   if (beforeError) return NextResponse.json({ error: beforeError.message }, { status: 500 });
   if (!before) return NextResponse.json({ error: "项目不存在。" }, { status: 404 });
 
-  const oldNotes = parseNotes(before.notes);
+  const oldNotes = parseProjectNotes(before.notes);
+  if (oldNotes.voided) {
+    return NextResponse.json({ error: "项目已作废，不能继续修改。" }, { status: 400 });
+  }
+  if (before.status === "COMPLETED" && body.action !== "complete") {
+    return NextResponse.json({ error: "项目已完工，只读状态下不能修改。" }, { status: 400 });
+  }
+
+  if (body.action === "complete" && !body.forceComplete) {
+    const [{ data: outbound }, { data: returns }] = await Promise.all([
+      supabase.from("OutboundRecord").select("quantity").eq("projectId", body.id),
+      supabase.from("InboundRecord").select("quantity").eq("projectId", body.id).eq("source", "PROJECT_RETURN")
+    ]);
+    const outboundQty = (outbound ?? []).reduce((sum, row) => sum + Number(row.quantity ?? 0), 0);
+    const returnQty = (returns ?? []).reduce((sum, row) => sum + Number(row.quantity ?? 0), 0);
+    const unreturnedQty = Math.max(0, outboundQty - returnQty);
+    if (unreturnedQty > 0) {
+      return NextResponse.json({
+        error: `项目仍有未退料数量 ${unreturnedQty}，确认无剩余材料后可强制完工。`,
+        code: "UNRETURNED_MATERIALS",
+        unreturnedQty
+      }, { status: 400 });
+    }
+  }
+
   const now = new Date().toISOString();
   const patch = {
     code: body.code ?? before.code,
@@ -196,12 +207,13 @@ export async function PATCH(request: NextRequest) {
     customer: body.customer ?? before.customer,
     managerId: body.managerId === undefined ? before.managerId : body.managerId || null,
     status: body.action === "complete" ? "COMPLETED" : statusFromLabel(body.status ?? before.status),
-    notes: JSON.stringify({
+    notes: stringifyProjectNotes({
       address: body.address ?? oldNotes.address,
       remark: body.remark ?? oldNotes.remark,
       voided: oldNotes.voided,
       voidReason: oldNotes.voidReason,
-      voidedAt: oldNotes.voidedAt
+      voidedAt: oldNotes.voidedAt,
+      drawings: oldNotes.drawings
     }),
     updatedAt: now
   };
@@ -264,17 +276,17 @@ export async function DELETE(request: NextRequest) {
     return NextResponse.json({ message: "项目无业务关联，已删除。" });
   }
 
-  const oldNotes = parseNotes(before.notes);
+  const oldNotes = parseProjectNotes(before.notes);
   const now = new Date().toISOString();
   const patch = {
     status: "PAUSED",
-    notes: JSON.stringify({
+    notes: stringifyProjectNotes({
       address: oldNotes.address,
       remark: oldNotes.remark,
       voided: true,
       voidReason: reason,
       voidedAt: now,
-      voidedBy: auth.profile.id
+      drawings: oldNotes.drawings
     }),
     updatedAt: now
   };

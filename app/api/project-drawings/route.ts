@@ -2,17 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAuthContext } from "@/lib/auth";
 import { writeOperationLog } from "@/lib/audit";
 import { compactId } from "@/lib/ids";
-import { parseJsonMeta, stringifyJsonMeta } from "@/lib/json-meta";
+import { parseProjectNotes, stringifyProjectNotes, type ProjectDrawing } from "@/lib/project-meta";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
-
-type Drawing = {
-  id: string;
-  drawingNo: string;
-  name: string;
-  version: string;
-  remark: string;
-  createdAt: string;
-};
 
 export async function GET(request: NextRequest) {
   const auth = await getAuthContext(request);
@@ -22,8 +13,8 @@ export async function GET(request: NextRequest) {
   const supabase = createSupabaseAdminClient();
   const { data, error } = await supabase.from("Project").select("id,notes").eq("id", projectId).maybeSingle();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  const meta = parseJsonMeta(data?.notes);
-  return NextResponse.json({ drawings: (meta.drawings as Drawing[] | undefined) ?? [] });
+  const meta = parseProjectNotes(data?.notes);
+  return NextResponse.json({ drawings: meta.drawings });
 }
 
 export async function POST(request: NextRequest) {
@@ -37,9 +28,12 @@ export async function POST(request: NextRequest) {
   const { data: before, error: beforeError } = await supabase.from("Project").select("*").eq("id", body.projectId).maybeSingle();
   if (beforeError) return NextResponse.json({ error: beforeError.message }, { status: 500 });
   if (!before) return NextResponse.json({ error: "项目不存在。" }, { status: 404 });
-  const meta = parseJsonMeta(before.notes);
-  const drawings = ((meta.drawings as Drawing[] | undefined) ?? []).filter((item) => item.drawingNo !== body.drawingNo);
-  const drawing: Drawing = {
+  const meta = parseProjectNotes(before.notes);
+  if (before.status === "COMPLETED") {
+    return NextResponse.json({ error: "项目已完工，只读状态下不能新增图号。" }, { status: 400 });
+  }
+  const drawings = meta.drawings.filter((item) => item.drawingNo !== body.drawingNo);
+  const drawing: ProjectDrawing = {
     id: compactId("dwg"),
     drawingNo: body.drawingNo,
     name: body.name,
@@ -50,7 +44,7 @@ export async function POST(request: NextRequest) {
   const afterMeta = { ...meta, drawings: [drawing, ...drawings] };
   const { data: after, error } = await supabase
     .from("Project")
-    .update({ notes: stringifyJsonMeta(afterMeta), updatedAt: new Date().toISOString() })
+    .update({ notes: stringifyProjectNotes(afterMeta), updatedAt: new Date().toISOString() })
     .eq("id", body.projectId)
     .select("*")
     .single();

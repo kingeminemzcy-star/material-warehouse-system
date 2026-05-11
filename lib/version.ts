@@ -1,4 +1,4 @@
-export const APP_VERSION = "v0.1.1-alpha";
+export const APP_VERSION = "v0.2.0-alpha";
 
 export type ChangelogEntry = {
   version: string;
@@ -9,6 +9,22 @@ export type ChangelogEntry = {
 };
 
 export const changelog: ChangelogEntry[] = [
+  {
+    version: "v0.2.0-alpha",
+    updatedAt: "2026-05-11",
+    changes: [
+      "进入 Phase 1 项目材料闭环，新增项目详情页作为图号、采购清单、领料、退料和项目完工入口。",
+      "每个项目支持维护多个图号，包含图号、图纸名称、版本号和备注。",
+      "项目采购清单按图号汇总材料、规格、采购数量、已入库数量、已领料数量、退料数量、剩余数量和项目库存占用。",
+      "采购申请、出库领料、项目退料入库支持关联项目图号，项目退料入库后自动增加库存并写入操作日志。",
+      "新增项目完工按钮，完工前检查未退料数量，完工后项目进入只读状态。"
+    ],
+    bugFixes: [
+      "修正项目统计中退料和剩余数量的计算口径，避免退料重复计入剩余。",
+      "补强完工项目的新增采购、入库、出库、图号维护拦截。"
+    ],
+    databaseImpact: "无"
+  },
   {
     version: "v0.1.1-alpha",
     updatedAt: "2026-05-11",

@@ -31,6 +31,8 @@ export function InboundClient() {
   async function submit() {
     const selected = materials.find((m) => `${m.id}|${m.specId}` === form.materialKey);
     if (!selected) return setError("请选择材料规格。");
+    if (form.source === "工程退料" && !form.projectId) return setError("项目退料必须选择来源工程。");
+    if (form.source === "工程退料" && !form.drawingId) return setError("项目退料必须选择项目图号。");
     setBusy(true); setError(null); setMessage(null);
     const res = await fetch("/api/inbound", { method: "POST", headers: { "Content-Type": "application/json", ...(await getAuthHeaders()) }, body: JSON.stringify({ ...form, materialId: selected.id, specId: selected.specId, unit: selected.unit }) });
     const payload = await res.json();
@@ -39,12 +41,19 @@ export function InboundClient() {
   }
   async function loadDrawings(projectId: string) {
     setDrawings([]);
-    setForm({ ...form, projectId, drawingId: "" });
+    setForm((old) => ({ ...old, projectId, drawingId: "" }));
     if (!projectId) return;
     const payload = await fetch(`/api/project-drawings?projectId=${encodeURIComponent(projectId)}`, { headers: await getAuthHeaders(), cache: "no-store" }).then((r) => r.json());
     setDrawings(payload.drawings ?? []);
   }
-  useEffect(() => { void load(); }, []);
+  useEffect(() => {
+    void load();
+    const params = new URLSearchParams(window.location.search);
+    const projectId = params.get("projectId");
+    const source = params.get("source");
+    if (source === "PROJECT_RETURN") setForm((old) => ({ ...old, source: inboundSourceLabels.PROJECT_RETURN }));
+    if (projectId) void loadDrawings(projectId);
+  }, []);
   return <div className="grid gap-6 xl:grid-cols-[430px_1fr]"><section className="rounded-lg border border-line bg-white p-4 shadow-soft"><h2 className="text-lg font-black">办理入库</h2><div className="mt-4 grid gap-4">
     <select className="field" value={form.source} onChange={(e)=>setForm({...form,source:e.target.value})}>{Object.values(inboundSourceLabels).map(v=><option key={v}>{v}</option>)}</select>
     <select className="field" value={form.purchaseOrderId} onChange={(e)=>setForm({...form,purchaseOrderId:e.target.value})}><option value="">手动入库/无采购单</option>{orders.map(o=><option key={o.id} value={o.id}>{`${o.orderNo} / ${o.supplier} / ${o.statusText}`}</option>)}</select>
@@ -53,7 +62,7 @@ export function InboundClient() {
     <select className="field" value={form.zone} onChange={(e)=>setForm({...form,zone:e.target.value})}>{zoneOptions.map(z=><option key={z.value}>{z.label}</option>)}</select>
     <input className="field" placeholder="库位" value={form.locationCode} onChange={(e)=>setForm({...form,locationCode:e.target.value})}/>
     <select className="field" value={form.projectId} onChange={(e)=>void loadDrawings(e.target.value)}><option value="">无关联工程</option>{projects.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select>
-    <select className="field" value={form.drawingId} onChange={(e)=>setForm({...form,drawingId:e.target.value})}><option value="">不关联图号</option>{drawings.map(d=><option key={d.id} value={d.id}>{d.drawingNo} / {d.name}</option>)}</select>
+    <select className="field" value={form.drawingId} onChange={(e)=>setForm({...form,drawingId:e.target.value})}><option value="">{form.source === "工程退料" ? "选择项目图号（必选）" : "不关联图号"}</option>{drawings.map(d=><option key={d.id} value={d.id}>{d.drawingNo} / {d.name}</option>)}</select>
     <input className="field" placeholder="备注" value={form.remark} onChange={(e)=>setForm({...form,remark:e.target.value})}/>
     <PhotoUploader label="入库照片" />
     <button className="btn-primary min-h-14 text-lg" disabled={busy} onClick={()=>void submit()}>{busy?<Loader2 className="animate-spin" size={22}/>:<PackagePlus size={22}/>}确认入库并增加库存</button>

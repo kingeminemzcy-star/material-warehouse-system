@@ -1,7 +1,8 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
-import { Loader2, Pencil, Plus, Trash2, X } from "lucide-react";
+import { Eye, Loader2, Pencil, Plus, Trash2, X } from "lucide-react";
 import { StatusBadge } from "@/components/status-badge";
 import { getAuthHeaders } from "@/lib/client-auth";
 
@@ -215,6 +216,10 @@ export function ProjectsClient() {
                         <Pencil size={16} />
                         修改
                       </button>
+                      <Link className="btn-secondary min-h-10 px-3" href={`/projects/${project.id}`}>
+                        <Eye size={16} />
+                        详情
+                      </Link>
                       <button className="btn-secondary min-h-10 px-3" disabled={busy} onClick={() => void removeProject(project)}>
                         <Trash2 size={16} />
                         删除/作废

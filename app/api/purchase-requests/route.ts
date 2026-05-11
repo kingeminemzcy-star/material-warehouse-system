@@ -3,6 +3,7 @@ import { getAuthContext } from "@/lib/auth";
 import { writeOperationLog } from "@/lib/audit";
 import { compactId, docNo } from "@/lib/ids";
 import { parseJsonMeta, stringifyJsonMeta } from "@/lib/json-meta";
+import { parseProjectNotes } from "@/lib/project-meta";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { purchaseStatusLabels } from "@/lib/warehouse-maps";
 
@@ -54,6 +55,15 @@ export async function POST(request: NextRequest) {
   }
 
   const supabase = createSupabaseAdminClient();
+  const { data: project, error: projectError } = await supabase.from("Project").select("id,status,notes").eq("id", body.projectId).maybeSingle();
+  if (projectError) return NextResponse.json({ error: projectError.message }, { status: 500 });
+  if (!project) return NextResponse.json({ error: "工程项目不存在。" }, { status: 404 });
+  if (project.status === "COMPLETED") return NextResponse.json({ error: "项目已完工，只读状态下不能新增采购申请。" }, { status: 400 });
+  const drawings = parseProjectNotes(project.notes).drawings;
+  if (drawings.length > 0 && !drawings.some((drawing) => drawing.id === body.drawingId)) {
+    return NextResponse.json({ error: "该项目已有图号，采购申请必须选择有效图号。" }, { status: 400 });
+  }
+
   const now = new Date().toISOString();
   const requestId = compactId("pr");
   const { data: purchaseRequest, error } = await supabase

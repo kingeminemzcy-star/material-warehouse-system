@@ -1,4 +1,4 @@
-export const APP_VERSION = "v0.5.4-alpha";
+export const APP_VERSION = "v0.5.5-alpha";
 
 export type ChangelogEntry = {
   version: string;
@@ -9,6 +9,21 @@ export type ChangelogEntry = {
 };
 
 export const changelog: ChangelogEntry[] = [
+  {
+    version: "v0.5.5-alpha",
+    updatedAt: "2026-05-11",
+    changes: [
+      "BOM Excel 导入优先读取 新增空调控制系统 sheet，并保留空单元格以避免 17 列打印版 BOM 错位。",
+      "表头扫描支持 项目号 | - | 填单人代号 | - | 日期 | - | 部件位 | - | 序号 | 名称 | 规格型号 | 品牌 | 材质 | 单位 | 数量 | 库存 | 备注 结构。",
+      "表头命中规则只统计有效字段，忽略 - 占位列和空列，数据行从真实表头下一行开始读取。"
+    ],
+    bugFixes: [
+      "修复真实表头在第 7 行且夹杂 - 占位列时无法识别的问题。",
+      "过滤 以下空白 行，数量字段继续支持数字字符串解析。",
+      "手动选择第 7 行作为表头后会立即重新映射字段并刷新 BOM 预览。"
+    ],
+    databaseImpact: "无"
+  },
   {
     version: "v0.5.4-alpha",
     updatedAt: "2026-05-11",

@@ -18,6 +18,7 @@ type ParsedBomTable = { fileName: string; rows: string[][]; headerIndex: number;
 const BOM_MAPPING_TEMPLATE_KEY = "warehouse-bom-mapping-template-v1";
 const HEADER_SCAN_LIMIT = 30;
 const REQUIRED_HEADER_MATCHES = 3;
+const PRINTED_BOM_SHEET_NAME = "新增空调控制系统";
 const requiredHeaderKeys: BomColumnKey[] = ["materialName", "quantity", "spec", "unit", "material", "sequence"];
 
 const fieldOptions: Array<{ key: BomColumnKey; label: string }> = [
@@ -39,7 +40,7 @@ const fieldOptions: Array<{ key: BomColumnKey; label: string }> = [
 
 const headerMap: Record<Exclude<BomColumnKey, "ignore">, string[]> = {
   projectCode: ["项目号", "项目编号", "项目编码", "工程号", "工程编号", "projectCode"],
-  applicant: ["填单人", "申请人", "制表人", "编制人"],
+  applicant: ["填单人", "填单人代号", "申请人", "制表人", "编制人"],
   date: ["日期", "填单日期", "制表日期"],
   drawingNo: ["图号", "部件位", "部位", "区域", "系统位号", "位置", "drawingNo", "drawing", "图纸编号"],
   sequence: ["序号", "编号", "no"],
@@ -78,7 +79,13 @@ function normalizeText(value: string) {
     .replace(/[\s\r\n\t:：/\\|｜\-_.()[\]【】]/g, "");
 }
 
+function isPlaceholderCell(value: string) {
+  const trimmed = value.trim();
+  return trimmed === "-" || trimmed === "—" || trimmed === "－";
+}
+
 function matchHeader(cell: string): BomColumnKey {
+  if (isPlaceholderCell(cell)) return "ignore";
   const normalizedCell = normalizeText(cell);
   if (!normalizedCell) return "ignore";
   for (const [key, aliases] of Object.entries(headerMap) as Array<[Exclude<BomColumnKey, "ignore">, string[]]>) {
@@ -138,6 +145,15 @@ function rowPreview(row: string[]) {
   return preview || "空行";
 }
 
+async function readExcelTable(file: File) {
+  const { readSheet } = await import("read-excel-file/browser");
+  try {
+    return await readSheet(file, PRINTED_BOM_SHEET_NAME);
+  } catch {
+    return readSheet(file);
+  }
+}
+
 function mappingSummary(headers: string[], mapping: BomMapping) {
   return headers.map((header, index) => ({ header: header || `第 ${index + 1} 列`, target: mapping[index] ?? "ignore" })).filter((item) => item.target !== "ignore");
 }
@@ -191,6 +207,7 @@ function extractProjectCode(rows: string[][], headerIndex: number) {
 function scoreHeaderRow(row: string[]) {
   const matched = row.map(matchHeader);
   const requiredMatches = new Set(matched.filter((key) => requiredHeaderKeys.includes(key)));
+  const validFieldCount = matched.filter((key) => key !== "ignore").length;
   const hasName = matched.includes("materialName");
   const hasQuantity = matched.includes("quantity");
   const hasSpec = matched.includes("spec");
@@ -198,7 +215,7 @@ function scoreHeaderRow(row: string[]) {
   const hasMaterial = matched.includes("material");
   const hasSequence = matched.includes("sequence");
   const score = requiredMatches.size + (hasName ? 3 : 0) + (hasQuantity ? 3 : 0) + (hasSpec ? 2 : 0) + (hasUnit ? 1 : 0) + (hasMaterial ? 1 : 0) + (hasSequence ? 1 : 0);
-  return { score, matched, hasName, hasQuantity, requiredMatchCount: requiredMatches.size };
+  return { score: score + validFieldCount, matched, hasName, hasQuantity, requiredMatchCount: requiredMatches.size, validFieldCount };
 }
 
 function detectBomTable(rows: string[][], fileName: string): ParsedBomTable {
@@ -255,6 +272,7 @@ function parseQuantity(value: string) {
 function isPaginationOrRepeatedHeader(row: string[]) {
   const joined = normalizeText(row.join(""));
   if (!joined) return true;
+  if (joined.includes("以下空白") || joined.includes("以下为空") || joined.includes("以下无正文")) return true;
   if (/第\d+页/.test(joined) || joined.includes("页码") || joined.includes("page")) return true;
   if (joined.includes("打印") || joined.includes("制表") || joined.includes("审核")) return true;
   return scoreHeaderRow(row).requiredMatchCount >= REQUIRED_HEADER_MATCHES;
@@ -353,7 +371,7 @@ export function BomClient() {
     setFileName(file.name);
     try {
       const rawTable = /\.xlsx?$/i.test(file.name)
-        ? await (await import("read-excel-file/browser")).default(file)
+        ? await readExcelTable(file)
         : parseCsv(await file.text());
       const normalized = normalizeTable(rawTable, file.name);
       const nextTable = detectBomTable(normalized.rows, file.name);

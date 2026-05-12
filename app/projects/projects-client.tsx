@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { Eye, Loader2, Pencil, Plus, Trash2, X } from "lucide-react";
 import { StatusBadge } from "@/components/status-badge";
 import { getAuthHeaders } from "@/lib/client-auth";
+import { responseError, responseMessage, safeJson } from "@/lib/client-safe-json";
 
 type Project = {
   id: string;
@@ -46,14 +47,14 @@ export function ProjectsClient() {
     setLoading(true);
     setError(null);
     const response = await fetch("/api/projects", { headers: await getAuthHeaders(), cache: "no-store" });
-    const payload = await response.json();
+    const payload = await safeJson(response);
     if (!response.ok) {
-      setError(payload.error || "项目列表加载失败。");
+      setError(responseError(payload, "项目列表加载失败。"));
       setLoading(false);
       return;
     }
-    setProjects(payload.projects);
-    setManagers(payload.managers ?? []);
+    setProjects((payload?.projects as Project[]) ?? []);
+    setManagers((payload?.managers as Manager[]) ?? []);
     setLoading(false);
   }
 
@@ -78,13 +79,13 @@ export function ProjectsClient() {
       headers: { "Content-Type": "application/json", ...(await getAuthHeaders()) },
       body: JSON.stringify(editingId ? { id: editingId, ...form, reason } : form)
     });
-    const payload = await response.json();
+    const payload = await safeJson(response);
     if (!response.ok) {
-      setError(payload.error || "工程项目保存失败。");
+      setError(responseError(payload, "工程项目保存失败。"));
       setBusy(false);
       return;
     }
-    setMessage(payload.message || "工程项目已保存。");
+    setMessage(responseMessage(payload, "工程项目已保存。"));
     resetForm();
     await loadProjects();
     setBusy(false);
@@ -100,13 +101,13 @@ export function ProjectsClient() {
       method: "DELETE",
       headers: await getAuthHeaders()
     });
-    const payload = await response.json();
+    const payload = await safeJson(response);
     if (!response.ok) {
-      setError(payload.error || "项目删除/作废失败。");
+      setError(responseError(payload, "项目删除/作废失败。"));
       setBusy(false);
       return;
     }
-    setMessage(payload.message || "项目已处理。");
+    setMessage(responseMessage(payload, "项目已处理。"));
     await loadProjects();
     setBusy(false);
   }

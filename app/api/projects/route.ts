@@ -48,7 +48,7 @@ function statusFromLabel(label: string): ProjectStatus {
 
 export async function GET(request: NextRequest) {
   const auth = await getAuthContext(request);
-  if (!auth) return NextResponse.json({ error: "未登录或账号已禁用。" }, { status: 401 });
+  if (!auth) return NextResponse.json({ ok: false, error: "未登录或账号已禁用。" }, { status: 401 });
 
   const supabase = createSupabaseAdminClient();
   let query = supabase.from("Project").select("id,code,name,customer,managerId,status,notes,createdAt").order("createdAt", { ascending: false });
@@ -62,11 +62,12 @@ export async function GET(request: NextRequest) {
     supabase.from("UserProfile").select("id,name,role").in("role", ["ADMIN", "BOSS", "PROJECT_MANAGER"]).eq("isActive", true)
   ]);
 
-  if (projectError) return NextResponse.json({ error: projectError.message }, { status: 500 });
-  if (managerError) return NextResponse.json({ error: managerError.message }, { status: 500 });
+  if (projectError) return NextResponse.json({ ok: false, error: projectError.message }, { status: 500 });
+  if (managerError) return NextResponse.json({ ok: false, error: managerError.message }, { status: 500 });
 
   const managerById = new Map((managers as UserRow[] | null ?? []).map((manager) => [manager.id, manager]));
   return NextResponse.json({
+    ok: true,
     managers,
     projects: ((projects ?? []) as ProjectRow[]).map((project) => {
       const notes = parseProjectNotes(project.notes);
@@ -92,9 +93,9 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   const auth = await getAuthContext(request);
-  if (!auth) return NextResponse.json({ error: "未登录或账号已禁用。" }, { status: 401 });
+  if (!auth) return NextResponse.json({ ok: false, error: "未登录或账号已禁用。" }, { status: 401 });
   if (!canManageProjects(auth.profile.role)) {
-    return NextResponse.json({ error: "当前角色无权创建工程项目。" }, { status: 403 });
+    return NextResponse.json({ ok: false, error: "当前角色无权创建工程项目。" }, { status: 403 });
   }
 
   const body = (await request.json()) as {
@@ -108,7 +109,7 @@ export async function POST(request: NextRequest) {
   };
 
   if (!body.code || !body.name) {
-    return NextResponse.json({ error: "项目编号和项目名称必填。" }, { status: 400 });
+    return NextResponse.json({ ok: false, error: "项目编号和项目名称必填。" }, { status: 400 });
   }
 
   const supabase = createSupabaseAdminClient();
@@ -130,7 +131,7 @@ export async function POST(request: NextRequest) {
     .select("id,code,name")
     .single();
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
 
   await supabase.from("AuditLog").insert({
     id: `log_${randomUUID().replace(/-/g, "")}`,
@@ -142,14 +143,14 @@ export async function POST(request: NextRequest) {
     createdAt: now
   });
 
-  return NextResponse.json({ message: "工程项目已创建。", project });
+  return NextResponse.json({ ok: true, message: "工程项目已创建。", project });
 }
 
 export async function PATCH(request: NextRequest) {
   const auth = await getAuthContext(request);
-  if (!auth) return NextResponse.json({ error: "未登录或账号已禁用。" }, { status: 401 });
+  if (!auth) return NextResponse.json({ ok: false, error: "未登录或账号已禁用。" }, { status: 401 });
   if (!canManageProjects(auth.profile.role)) {
-    return NextResponse.json({ error: "当前角色无权修改工程项目。" }, { status: 403 });
+    return NextResponse.json({ ok: false, error: "当前角色无权修改工程项目。" }, { status: 403 });
   }
 
   const body = (await request.json()) as {
@@ -167,18 +168,18 @@ export async function PATCH(request: NextRequest) {
   };
 
   if (!body.id || !body.reason?.trim()) {
-    return NextResponse.json({ error: "修改项目必须提供项目 ID 和修改原因。" }, { status: 400 });
+    return NextResponse.json({ ok: false, error: "修改项目必须提供项目 ID 和修改原因。" }, { status: 400 });
   }
 
   const supabase = createSupabaseAdminClient();
   const { data: before, error: beforeError } = await supabase.from("Project").select("*").eq("id", body.id).maybeSingle();
-  if (beforeError) return NextResponse.json({ error: beforeError.message }, { status: 500 });
-  if (!before) return NextResponse.json({ error: "项目不存在。" }, { status: 404 });
+  if (beforeError) return NextResponse.json({ ok: false, error: beforeError.message }, { status: 500 });
+  if (!before) return NextResponse.json({ ok: false, error: "项目不存在。" }, { status: 404 });
 
   const oldNotes = parseProjectNotes(before.notes);
   if (body.action === "restore") {
     if (auth.profile.role !== "ADMIN" && auth.profile.role !== "BOSS") {
-      return NextResponse.json({ error: "只有老板/管理员可以恢复项目。" }, { status: 403 });
+      return NextResponse.json({ ok: false, error: "只有老板/管理员可以恢复项目。" }, { status: 403 });
     }
     const now = new Date().toISOString();
     const { data: after, error } = await supabase.from("Project").update({
@@ -186,16 +187,16 @@ export async function PATCH(request: NextRequest) {
       notes: stringifyProjectNotes({ ...oldNotes, voided: false, voidReason: "", voidedAt: "" }),
       updatedAt: now
     }).eq("id", body.id).select("*").single();
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
     await writeOperationLog({ actorId: auth.profile.id, action: "UPDATE", projectId: body.id, remark: `恢复项目：${body.reason}`, before, after, request });
-    return NextResponse.json({ message: "项目已恢复。", project: after });
+    return NextResponse.json({ ok: true, message: "项目已恢复。", project: after });
   }
 
   if (oldNotes.voided) {
-    return NextResponse.json({ error: "项目已作废，不能继续修改。" }, { status: 400 });
+    return NextResponse.json({ ok: false, error: "项目已作废，不能继续修改。" }, { status: 400 });
   }
   if (before.status === "COMPLETED" && body.action !== "complete") {
-    return NextResponse.json({ error: "项目已完工，只读状态下不能修改。" }, { status: 400 });
+    return NextResponse.json({ ok: false, error: "项目已完工，只读状态下不能修改。" }, { status: 400 });
   }
 
   if (body.action === "complete" && !body.forceComplete) {
@@ -209,6 +210,7 @@ export async function PATCH(request: NextRequest) {
     const unreturnedQty = Math.max(0, outboundQty - returnQty);
     if (unreturnedQty > 0) {
       return NextResponse.json({
+        ok: false,
         error: `项目仍有未退料数量 ${unreturnedQty}，确认无剩余材料后可强制完工。`,
         code: "UNRETURNED_MATERIALS",
         unreturnedQty
@@ -218,6 +220,7 @@ export async function PATCH(request: NextRequest) {
     const openBomCount = oldNotes.boms.filter((bom) => bom.isCurrent).length;
     if (unfinishedPurchaseCount > 0 || openBomCount > 0) {
       return NextResponse.json({
+        ok: false,
         error: `项目仍有未完成采购 ${unfinishedPurchaseCount} 条、未关闭 BOM ${openBomCount} 个，确认后可强制完工。`,
         code: "UNRETURNED_MATERIALS",
         unfinishedPurchaseCount,
@@ -246,7 +249,7 @@ export async function PATCH(request: NextRequest) {
   };
 
   const { data: after, error } = await supabase.from("Project").update(patch).eq("id", body.id).select("*").single();
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
 
   await writeOperationLog({
     actorId: auth.profile.id,
@@ -258,27 +261,27 @@ export async function PATCH(request: NextRequest) {
     extra: { entity: "project", recordId: body.id }
   });
 
-  return NextResponse.json({ message: "项目已修改，并已写入操作日志。", project: after });
+  return NextResponse.json({ ok: true, message: "项目已修改，并已写入操作日志。", project: after });
 }
 
 export async function DELETE(request: NextRequest) {
   const auth = await getAuthContext(request);
-  if (!auth) return NextResponse.json({ error: "未登录或账号已禁用。" }, { status: 401 });
+  if (!auth) return NextResponse.json({ ok: false, error: "未登录或账号已禁用。" }, { status: 401 });
   if (auth.profile.role !== "ADMIN" && auth.profile.role !== "BOSS") {
-    return NextResponse.json({ error: "只有老板/管理员可以删除或作废项目。" }, { status: 403 });
+    return NextResponse.json({ ok: false, error: "只有老板/管理员可以删除或作废项目。" }, { status: 403 });
   }
 
   const { searchParams } = new URL(request.url);
   const id = searchParams.get("id");
   const reason = searchParams.get("reason");
   if (!id || !reason?.trim()) {
-    return NextResponse.json({ error: "删除/作废项目必须提供项目 ID 和原因。" }, { status: 400 });
+    return NextResponse.json({ ok: false, error: "删除/作废项目必须提供项目 ID 和原因。" }, { status: 400 });
   }
 
   const supabase = createSupabaseAdminClient();
   const { data: before, error: beforeError } = await supabase.from("Project").select("*").eq("id", id).maybeSingle();
-  if (beforeError) return NextResponse.json({ error: beforeError.message }, { status: 500 });
-  if (!before) return NextResponse.json({ error: "项目不存在。" }, { status: 404 });
+  if (beforeError) return NextResponse.json({ ok: false, error: beforeError.message }, { status: 500 });
+  if (!before) return NextResponse.json({ ok: false, error: "项目不存在。" }, { status: 404 });
 
   const oldNotes = parseProjectNotes(before.notes);
   const now = new Date().toISOString();
@@ -296,7 +299,7 @@ export async function DELETE(request: NextRequest) {
     updatedAt: now
   };
   const { data: after, error } = await supabase.from("Project").update(patch).eq("id", id).select("*").single();
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
 
   await writeOperationLog({
     actorId: auth.profile.id,
@@ -308,5 +311,5 @@ export async function DELETE(request: NextRequest) {
     extra: { entity: "project", recordId: id, hardDelete: false, voided: true }
   });
 
-  return NextResponse.json({ message: "项目已有业务记录，已按规则作废。" });
+  return NextResponse.json({ ok: true, message: "项目已有业务记录，已按规则作废。" });
 }

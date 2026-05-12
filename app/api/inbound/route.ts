@@ -18,27 +18,27 @@ function parseOrderMeta(remark: string | null) {
 
 export async function POST(request: NextRequest) {
   const auth = await getAuthContext(request);
-  if (!auth) return NextResponse.json({ error: "未登录或账号已禁用。" }, { status: 401 });
-  if (!["ADMIN", "BOSS", "WAREHOUSE"].includes(auth.profile.role)) return NextResponse.json({ error: "无入库权限。" }, { status: 403 });
+  if (!auth) return NextResponse.json({ ok: false, error: "未登录或账号已禁用。" }, { status: 401 });
+  if (!["ADMIN", "BOSS", "WAREHOUSE"].includes(auth.profile.role)) return NextResponse.json({ ok: false, error: "无入库权限。" }, { status: 403 });
   const body = (await request.json()) as { purchaseOrderId?: string; materialId?: string; specId?: string; projectId?: string; drawingId?: string; source?: string; zone?: string; locationCode?: string; quantity?: number; unit?: string; remark?: string };
-  if (!body.materialId || !body.specId || !body.source || !body.zone || !body.locationCode || !body.quantity || !body.unit) return NextResponse.json({ error: "入库信息不完整。" }, { status: 400 });
+  if (!body.materialId || !body.specId || !body.source || !body.zone || !body.locationCode || !body.quantity || !body.unit) return NextResponse.json({ ok: false, error: "入库信息不完整。" }, { status: 400 });
   const supabase = createSupabaseAdminClient();
   const now = new Date().toISOString();
   const zone = zoneFromLabel(body.zone);
   const source = inboundSourceFromLabel(body.source);
 
-  if (source === "PROJECT_RETURN" && !body.projectId) return NextResponse.json({ error: "工程退料必须选择来源工程。" }, { status: 400 });
+  if (source === "PROJECT_RETURN" && !body.projectId) return NextResponse.json({ ok: false, error: "工程退料必须选择来源工程。" }, { status: 400 });
   if (body.projectId) {
     const { data: project, error: projectError } = await supabase.from("Project").select("id,status,notes").eq("id", body.projectId).maybeSingle();
-    if (projectError) return NextResponse.json({ error: projectError.message }, { status: 500 });
-    if (!project) return NextResponse.json({ error: "工程项目不存在。" }, { status: 404 });
-    if (project.status === "COMPLETED") return NextResponse.json({ error: "项目已完工，只读状态下不能新增入库/退料记录。" }, { status: 400 });
+    if (projectError) return NextResponse.json({ ok: false, error: projectError.message }, { status: 500 });
+    if (!project) return NextResponse.json({ ok: false, error: "工程项目不存在。" }, { status: 404 });
+    if (project.status === "COMPLETED") return NextResponse.json({ ok: false, error: "项目已完工，只读状态下不能新增入库/退料记录。" }, { status: 400 });
     const drawings = parseProjectNotes(project.notes).drawings;
     if (source === "PROJECT_RETURN" && !drawings.some((drawing) => drawing.id === body.drawingId)) {
-      return NextResponse.json({ error: "项目退料入库必须选择有效图号。" }, { status: 400 });
+      return NextResponse.json({ ok: false, error: "项目退料入库必须选择有效图号。" }, { status: 400 });
     }
     if (source !== "PROJECT_RETURN" && drawings.length > 0 && body.drawingId && !drawings.some((drawing) => drawing.id === body.drawingId)) {
-      return NextResponse.json({ error: "请选择该项目下的有效图号。" }, { status: 400 });
+      return NextResponse.json({ ok: false, error: "请选择该项目下的有效图号。" }, { status: 400 });
     }
   }
 
@@ -48,11 +48,11 @@ export async function POST(request: NextRequest) {
       .select("id,status,remark,PurchaseOrderItem(id,materialId,specId,quantity,receivedQty)")
       .eq("id", body.purchaseOrderId)
       .maybeSingle();
-    if (orderError) return NextResponse.json({ error: orderError.message }, { status: 500 });
-    if (!order) return NextResponse.json({ error: "采购单不存在。" }, { status: 404 });
+    if (orderError) return NextResponse.json({ ok: false, error: orderError.message }, { status: 500 });
+    if (!order) return NextResponse.json({ ok: false, error: "采购单不存在。" }, { status: 404 });
     const meta = parseOrderMeta(order.remark);
     if (meta.acceptanceStatus !== "ACCEPTED") {
-      return NextResponse.json({ error: "采购到货必须先完成验收确认，通过后才能入库。" }, { status: 400 });
+      return NextResponse.json({ ok: false, error: "采购到货必须先完成验收确认，通过后才能入库。" }, { status: 400 });
     }
   }
 
@@ -81,10 +81,10 @@ export async function POST(request: NextRequest) {
       await tx.auditLog.create({ data: { id: compactId("log"), actorId: auth.profile.id, action: "INBOUND", materialId: body.materialId, projectId: body.projectId || null, remark: source === "PROJECT_RETURN" ? "项目退料入库，库存增加" : "入库增加库存", metadata: { before: { lot, beforeQty }, after: { lot: updatedLot, record, afterQty }, actorId: auth.profile.id, operatedAt: now, drawingId: body.drawingId || "", source } } });
       return { record, lot: updatedLot };
     });
-    return NextResponse.json({ message: "入库成功，库存已增加。", ...result });
+    return NextResponse.json({ ok: true, message: "入库成功，库存已增加。", ...result });
   } catch (error) {
     if (error instanceof Error && error.message === "DUPLICATE_INBOUND") {
-      return NextResponse.json({ error: "入库数量超过采购单未入库数量，禁止重复入库。" }, { status: 409 });
+      return NextResponse.json({ ok: false, error: "入库数量超过采购单未入库数量，禁止重复入库。" }, { status: 409 });
     }
     throw error;
   }

@@ -13,9 +13,10 @@ export async function GET() {
     .from("PurchaseRequest")
     .select("*, Project(name), UserProfile!PurchaseRequest_applicantId_fkey(name), PurchaseRequestItem(*, Material(name), MaterialSpec(specModel,materialText,dimensionsText))")
     .order("createdAt", { ascending: false });
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
 
   return NextResponse.json({
+    ok: true,
     requests: (data ?? []).map((row) => {
       const item = row.PurchaseRequestItem?.[0];
       return {
@@ -37,7 +38,7 @@ export async function GET() {
 
 export async function POST(request: NextRequest) {
   const auth = await getAuthContext(request);
-  if (!auth) return NextResponse.json({ error: "未登录或账号已禁用。" }, { status: 401 });
+  if (!auth) return NextResponse.json({ ok: false, error: "未登录或账号已禁用。" }, { status: 401 });
 
   const body = (await request.json()) as {
     projectId?: string;
@@ -51,17 +52,17 @@ export async function POST(request: NextRequest) {
     drawingId?: string;
   };
   if (!body.projectId || !body.materialId || !body.specId || !body.quantity || !body.unit || !body.purpose) {
-    return NextResponse.json({ error: "工程、材料、数量、单位、用途必填。" }, { status: 400 });
+    return NextResponse.json({ ok: false, error: "工程、材料、数量、单位、用途必填。" }, { status: 400 });
   }
 
   const supabase = createSupabaseAdminClient();
   const { data: project, error: projectError } = await supabase.from("Project").select("id,status,notes").eq("id", body.projectId).maybeSingle();
-  if (projectError) return NextResponse.json({ error: projectError.message }, { status: 500 });
-  if (!project) return NextResponse.json({ error: "工程项目不存在。" }, { status: 404 });
-  if (project.status === "COMPLETED") return NextResponse.json({ error: "项目已完工，只读状态下不能新增采购申请。" }, { status: 400 });
+  if (projectError) return NextResponse.json({ ok: false, error: projectError.message }, { status: 500 });
+  if (!project) return NextResponse.json({ ok: false, error: "工程项目不存在。" }, { status: 404 });
+  if (project.status === "COMPLETED") return NextResponse.json({ ok: false, error: "项目已完工，只读状态下不能新增采购申请。" }, { status: 400 });
   const drawings = parseProjectNotes(project.notes).drawings;
   if (drawings.length > 0 && !drawings.some((drawing) => drawing.id === body.drawingId)) {
-    return NextResponse.json({ error: "该项目已有图号，采购申请必须选择有效图号。" }, { status: 400 });
+    return NextResponse.json({ ok: false, error: "该项目已有图号，采购申请必须选择有效图号。" }, { status: 400 });
   }
 
   const now = new Date().toISOString();
@@ -82,7 +83,7 @@ export async function POST(request: NextRequest) {
     })
     .select("*")
     .single();
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
 
   const { error: itemError } = await supabase.from("PurchaseRequestItem").insert({
     id: compactId("pri"),
@@ -94,7 +95,7 @@ export async function POST(request: NextRequest) {
     purpose: body.purpose,
     remark: body.remark || null
   });
-  if (itemError) return NextResponse.json({ error: itemError.message }, { status: 500 });
+  if (itemError) return NextResponse.json({ ok: false, error: itemError.message }, { status: 500 });
 
   await writeOperationLog({
     actorId: auth.profile.id,
@@ -106,5 +107,5 @@ export async function POST(request: NextRequest) {
     after: purchaseRequest
   });
 
-  return NextResponse.json({ message: "采购申请已提交，状态为待审批。", request: purchaseRequest });
+  return NextResponse.json({ ok: true, message: "采购申请已提交，状态为待审批。", request: purchaseRequest });
 }

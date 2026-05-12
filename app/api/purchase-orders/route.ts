@@ -60,8 +60,9 @@ export async function GET() {
     supabase.from("PurchaseOrder").select("*, PurchaseRequest(requestNo), UserProfile!PurchaseOrder_purchaserId_fkey(name), PurchaseOrderItem(quantity,receivedQty)").order("orderedAt", { ascending: false }),
     supabase.from("PurchaseRequest").select("id,requestNo,status").eq("status", "APPROVED")
   ]);
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
   return NextResponse.json({
+    ok: true,
     approvedRequests: approved ?? [],
     orders: (orders ?? []).map((row) => {
       const meta = parseMeta(row.remark);
@@ -85,15 +86,15 @@ export async function GET() {
 
 export async function POST(request: NextRequest) {
   const auth = await getAuthContext(request);
-  if (!auth) return NextResponse.json({ error: "未登录或账号已禁用。" }, { status: 401 });
+  if (!auth) return NextResponse.json({ ok: false, error: "未登录或账号已禁用。" }, { status: 401 });
   if (auth.profile.role !== "ADMIN" && auth.profile.role !== "BOSS" && auth.profile.role !== "PURCHASER") {
-    return NextResponse.json({ error: "只有采购员或管理员可以创建采购单。" }, { status: 403 });
+    return NextResponse.json({ ok: false, error: "只有采购员或管理员可以创建采购单。" }, { status: 403 });
   }
   const body = (await request.json()) as { purchaseRequestId?: string; supplier?: string; totalAmount?: number; expectedArrival?: string; remark?: string };
-  if (!body.purchaseRequestId || !body.supplier) return NextResponse.json({ error: "已审批申请和供应商必填。" }, { status: 400 });
+  if (!body.purchaseRequestId || !body.supplier) return NextResponse.json({ ok: false, error: "已审批申请和供应商必填。" }, { status: 400 });
   const supabase = createSupabaseAdminClient();
   const { data: requestRow } = await supabase.from("PurchaseRequest").select("id,status").eq("id", body.purchaseRequestId).maybeSingle();
-  if (!requestRow || requestRow.status !== "APPROVED") return NextResponse.json({ error: "只能由已审批申请生成采购单。" }, { status: 400 });
+  if (!requestRow || requestRow.status !== "APPROVED") return NextResponse.json({ ok: false, error: "只能由已审批申请生成采购单。" }, { status: 400 });
 
   const now = new Date().toISOString();
   const orderId = compactId("po");
@@ -110,7 +111,7 @@ export async function POST(request: NextRequest) {
     orderedAt: now,
     updatedAt: now
   }).select("*").single();
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
 
   const { data: items } = await supabase.from("PurchaseRequestItem").select("*").eq("purchaseRequestId", body.purchaseRequestId);
   if (items?.length) {
@@ -127,14 +128,14 @@ export async function POST(request: NextRequest) {
   }
   await supabase.from("PurchaseRequest").update({ status: "ORDERED", updatedAt: now }).eq("id", body.purchaseRequestId);
   await writeOperationLog({ actorId: auth.profile.id, action: "PURCHASE_ORDER", remark: "采购下单", before: requestRow, after: order });
-  return NextResponse.json({ message: "采购单已创建。", order });
+  return NextResponse.json({ ok: true, message: "采购单已创建。", order });
 }
 
 export async function PATCH(request: NextRequest) {
   const auth = await getAuthContext(request);
-  if (!auth) return NextResponse.json({ error: "未登录或账号已禁用。" }, { status: 401 });
+  if (!auth) return NextResponse.json({ ok: false, error: "未登录或账号已禁用。" }, { status: 401 });
   if (auth.profile.role !== "ADMIN" && auth.profile.role !== "BOSS" && auth.profile.role !== "PURCHASER" && auth.profile.role !== "WAREHOUSE") {
-    return NextResponse.json({ error: "无采购流程操作权限。" }, { status: 403 });
+    return NextResponse.json({ ok: false, error: "无采购流程操作权限。" }, { status: 403 });
   }
 
   const body = (await request.json()) as {
@@ -142,7 +143,7 @@ export async function PATCH(request: NextRequest) {
     action?: "completePurchase" | "acceptArrival" | "rejectArrival" | "remind";
     remark?: string;
   };
-  if (!body.id || !body.action) return NextResponse.json({ error: "缺少采购单 ID 或操作类型。" }, { status: 400 });
+  if (!body.id || !body.action) return NextResponse.json({ ok: false, error: "缺少采购单 ID 或操作类型。" }, { status: 400 });
 
   const supabase = createSupabaseAdminClient();
   const { data: before, error: beforeError } = await supabase
@@ -150,8 +151,8 @@ export async function PATCH(request: NextRequest) {
     .select("*, PurchaseOrderItem(quantity,receivedQty)")
     .eq("id", body.id)
     .maybeSingle();
-  if (beforeError) return NextResponse.json({ error: beforeError.message }, { status: 500 });
-  if (!before) return NextResponse.json({ error: "采购单不存在。" }, { status: 404 });
+  if (beforeError) return NextResponse.json({ ok: false, error: beforeError.message }, { status: 500 });
+  if (!before) return NextResponse.json({ ok: false, error: "采购单不存在。" }, { status: 404 });
 
   const meta = parseMeta(before.remark);
   const now = new Date().toISOString();
@@ -168,7 +169,7 @@ export async function PATCH(request: NextRequest) {
   }
 
   if (body.action === "acceptArrival") {
-    if (!meta.purchaseCompleted) return NextResponse.json({ error: "需先确认采购完成，才能到货验收。" }, { status: 400 });
+    if (!meta.purchaseCompleted) return NextResponse.json({ ok: false, error: "需先确认采购完成，才能到货验收。" }, { status: 400 });
     meta.acceptanceStatus = "ACCEPTED";
     meta.acceptedBy = auth.profile.id;
     meta.acceptedAt = now;
@@ -177,7 +178,7 @@ export async function PATCH(request: NextRequest) {
   }
 
   if (body.action === "rejectArrival") {
-    if (!meta.purchaseCompleted) return NextResponse.json({ error: "需先确认采购完成，才能验收拒绝。" }, { status: 400 });
+    if (!meta.purchaseCompleted) return NextResponse.json({ ok: false, error: "需先确认采购完成，才能验收拒绝。" }, { status: 400 });
     meta.acceptanceStatus = "REJECTED";
     meta.acceptedBy = auth.profile.id;
     meta.acceptedAt = now;
@@ -198,7 +199,7 @@ export async function PATCH(request: NextRequest) {
     .eq("id", body.id)
     .select("*")
     .single();
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
 
   await writeOperationLog({
     actorId: auth.profile.id,
@@ -209,5 +210,5 @@ export async function PATCH(request: NextRequest) {
     extra: { purchaseOrderId: body.id, purchaseFlowAction: body.action }
   });
 
-  return NextResponse.json({ message, order: after });
+  return NextResponse.json({ ok: true, message, order: after });
 }

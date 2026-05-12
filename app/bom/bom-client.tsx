@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { FileSpreadsheet, Loader2, PackagePlus, RefreshCw, Upload } from "lucide-react";
 import { StatusBadge } from "@/components/status-badge";
 import { getAuthHeaders } from "@/lib/client-auth";
+import { responseError, responseMessage, safeJson } from "@/lib/client-safe-json";
 import { inferMaterialCategory } from "@/lib/material-code";
 
 type Project = { id: string; name: string; code: string };
@@ -495,13 +496,13 @@ export function BomClient() {
       headers: { "Content-Type": "application/json", ...(await getAuthHeaders()) },
       body: JSON.stringify({ projectId, drawingNo, version, rows, meta: { projectCode: parsedTable?.projectCode, orderPerson: parsedTable?.orderPerson, orderDate: parsedTable?.orderDate } })
     });
-    const payload = await response.json();
+    const payload = await safeJson(response);
     if (!response.ok) {
-      setError(payload.error || "BOM 上传失败。");
+      setError(responseError(payload, "BOM 上传失败。"));
       setBusy(false);
       return;
     }
-    setMessage(payload.message || "BOM 已上传。");
+    setMessage(responseMessage(payload, "BOM 已上传。"));
     setRows([]);
     await loadBoms();
     setBusy(false);
@@ -519,9 +520,9 @@ export function BomClient() {
       headers: { "Content-Type": "application/json", ...(await getAuthHeaders()) },
       body: JSON.stringify({ projectId, bomId, action, confirmed: true, reason })
     });
-    const payload = await response.json();
-    if (!response.ok) setError(payload.error || "BOM 操作失败。");
-    else setMessage(payload.message || "操作已完成。");
+    const payload = await safeJson(response);
+    if (!response.ok) setError(responseError(payload, "BOM 操作失败。"));
+    else setMessage(responseMessage(payload, "操作已完成。"));
     await loadBoms();
     setBusy(false);
   }
@@ -534,8 +535,8 @@ export function BomClient() {
       headers: { "Content-Type": "application/json", ...(await getAuthHeaders()) },
       body: JSON.stringify({ name: row.materialName, category: inferMaterialCategory(`${row.materialName} ${row.spec}`), spec: row.spec, material: row.material, dimensions: "", unit: row.unit })
     });
-    const payload = await response.json();
-    if (!response.ok && response.status !== 409) setError(payload.error || "材料创建失败。");
+    const payload = await safeJson(response);
+    if (!response.ok && response.status !== 409) setError(responseError(payload, "材料创建失败。"));
     else setMessage(response.status === 409 ? "材料已存在，请重新上传或刷新 BOM 匹配。" : "材料已创建，请重新上传或刷新 BOM 匹配。");
     setBusy(false);
   }

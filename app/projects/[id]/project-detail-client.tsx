@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Ban, CheckCircle2, Loader2, PackageMinus, PackagePlus, Pencil, Plus, RotateCcw, Save, Trash2 } from "lucide-react";
 import { StatusBadge } from "@/components/status-badge";
 import { getAuthHeaders } from "@/lib/client-auth";
+import { responseError, responseMessage, safeJson } from "@/lib/client-safe-json";
 
 type Drawing = { id: string; drawingNo: string; name: string; version: string; remark: string; voided?: boolean; voidReason?: string; bomCount?: number; purchaseQty?: number; outboundQty?: number; returnQty?: number };
 type BomItem = { id: string; drawingNo: string; version: string; isCurrent: boolean; uploadedAt: string; uploadedByName?: string; projectCode?: string; orderPerson?: string; orderDate?: string; rows: unknown[] };
@@ -54,12 +55,12 @@ export function ProjectDetailClient({ projectId }: { projectId: string }) {
   async function load() {
     setError(null);
     const response = await fetch(`/api/project-summary?projectId=${encodeURIComponent(projectId)}`, { headers: await getAuthHeaders(), cache: "no-store" });
-    const payload = await response.json();
+    const payload = await safeJson(response);
     if (!response.ok) {
-      setError(payload.error || "项目详情加载失败。");
+      setError(responseError(payload, "项目详情加载失败。"));
       return;
     }
-    setData(payload);
+    setData(payload as SummaryPayload);
   }
 
   async function addDrawing() {
@@ -71,13 +72,13 @@ export function ProjectDetailClient({ projectId }: { projectId: string }) {
       headers: { "Content-Type": "application/json", ...(await getAuthHeaders()) },
       body: JSON.stringify({ projectId, ...drawingForm })
     });
-    const payload = await response.json();
+    const payload = await safeJson(response);
     if (!response.ok) {
-      setError(payload.error || "图号保存失败。");
+      setError(responseError(payload, "图号保存失败。"));
       setBusy(false);
       return;
     }
-    setMessage(payload.message || "图号已保存。");
+    setMessage(responseMessage(payload, "图号已保存。"));
     setDrawingForm({ drawingNo: "", name: "", version: "A", remark: "" });
     await load();
     setBusy(false);
@@ -99,13 +100,13 @@ export function ProjectDetailClient({ projectId }: { projectId: string }) {
       headers: { "Content-Type": "application/json", ...(await getAuthHeaders()) },
       body: JSON.stringify({ projectId, drawingId: drawing.id, action, reason, ...(action === "update" ? editDrawingForm : {}) })
     });
-    const payload = await response.json();
+    const payload = await safeJson(response);
     if (!response.ok) {
-      setError(payload.error || "图号操作失败。");
+      setError(responseError(payload, "图号操作失败。"));
       setBusy(false);
       return;
     }
-    setMessage(payload.message || "图号操作已完成。");
+    setMessage(responseMessage(payload, "图号操作已完成。"));
     setEditingDrawingId("");
     await load();
     setBusy(false);
@@ -122,18 +123,18 @@ export function ProjectDetailClient({ projectId }: { projectId: string }) {
       headers: { "Content-Type": "application/json", ...(await getAuthHeaders()) },
       body: JSON.stringify({ id: projectId, action: "complete", reason, forceComplete })
     });
-    const payload = await response.json();
+    const payload = await safeJson(response);
     if (!response.ok) {
-      if (payload.code === "UNRETURNED_MATERIALS" && window.confirm(`${payload.error}\n\n是否确认没有剩余材料需要退库，并强制完工？`)) {
+      if (payload?.code === "UNRETURNED_MATERIALS" && window.confirm(`${responseError(payload, "项目仍有未完成事项。")}\n\n是否确认没有剩余材料需要退库，并强制完工？`)) {
         setBusy(false);
         await completeProject(true);
         return;
       }
-      setError(payload.error || "项目完工失败。");
+      setError(responseError(payload, "项目完工失败。"));
       setBusy(false);
       return;
     }
-    setMessage(payload.message || "项目已完工。");
+    setMessage(responseMessage(payload, "项目已完工。"));
     await load();
     setBusy(false);
   }

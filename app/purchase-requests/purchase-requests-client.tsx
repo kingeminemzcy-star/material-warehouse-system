@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { Loader2, Send } from "lucide-react";
 import { StatusBadge } from "@/components/status-badge";
 import { getAuthHeaders } from "@/lib/client-auth";
+import { responseError, responseMessage, safeJson } from "@/lib/client-safe-json";
 
 type Project = { id: string; name: string; code: string };
 type Drawing = { id: string; drawingNo: string; name: string; version: string };
@@ -52,13 +53,13 @@ export function PurchaseRequestsClient() {
       headers: { "Content-Type": "application/json", ...(await getAuthHeaders()) },
       body: JSON.stringify({ ...form, materialId: selected.id, specId: selected.specId, unit: selected.unit })
     });
-    const payload = await response.json();
+    const payload = await safeJson(response);
     if (!response.ok) {
-      setError(payload.error || "采购申请提交失败。");
+      setError(responseError(payload, "采购申请提交失败。"));
       setBusy(false);
       return;
     }
-    setMessage(payload.message);
+    setMessage(responseMessage(payload, "采购申请已提交。"));
     setForm({ projectId: "", drawingId: "", materialKey: "", quantity: 1, expectedArrival: "", purpose: "", remark: "" });
     await load();
     setBusy(false);

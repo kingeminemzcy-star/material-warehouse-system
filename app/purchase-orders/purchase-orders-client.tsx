@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { Bell, CheckCircle2, ClipboardCheck, Loader2, ShoppingCart, XCircle } from "lucide-react";
 import { StatusBadge } from "@/components/status-badge";
 import { getAuthHeaders } from "@/lib/client-auth";
+import { responseError, responseMessage, safeJson } from "@/lib/client-safe-json";
 
 type ApprovedRequest = { id: string; requestNo: string };
 type Order = { id: string; orderNo: string; requestNo: string; supplier: string; purchaser: string; amount: number; expectedArrival: string; statusText: string; receivedQty: number; orderedQty: number };
@@ -24,9 +25,9 @@ export function PurchaseOrdersClient() {
   async function submit() {
     setBusy(true); setError(null); setMessage(null);
     const res = await fetch("/api/purchase-orders", { method: "POST", headers: { "Content-Type": "application/json", ...(await getAuthHeaders()) }, body: JSON.stringify(form) });
-    const payload = await res.json();
-    if (!res.ok) { setError(payload.error || "采购单创建失败。"); setBusy(false); return; }
-    setMessage(payload.message); setForm({ purchaseRequestId: "", supplier: "", totalAmount: 0, expectedArrival: "", remark: "" }); await load(); setBusy(false);
+    const payload = await safeJson(res);
+    if (!res.ok) { setError(responseError(payload, "采购单创建失败。")); setBusy(false); return; }
+    setMessage(responseMessage(payload, "采购单已创建。")); setForm({ purchaseRequestId: "", supplier: "", totalAmount: 0, expectedArrival: "", remark: "" }); await load(); setBusy(false);
   }
   async function flowAction(order: Order, action: "completePurchase" | "acceptArrival" | "rejectArrival" | "remind") {
     const label = action === "completePurchase" ? "采购完成确认备注" : action === "acceptArrival" ? "验收通过备注" : action === "rejectArrival" ? "验收拒绝原因" : "催货提醒备注";
@@ -40,13 +41,13 @@ export function PurchaseOrdersClient() {
       headers: { "Content-Type": "application/json", ...(await getAuthHeaders()) },
       body: JSON.stringify({ id: order.id, action, remark })
     });
-    const payload = await res.json();
+    const payload = await safeJson(res);
     if (!res.ok) {
-      setError(payload.error || "采购流程操作失败。");
+      setError(responseError(payload, "采购流程操作失败。"));
       setBusy(false);
       return;
     }
-    setMessage(payload.message);
+    setMessage(responseMessage(payload, "采购流程操作已完成。"));
     await load();
     setBusy(false);
   }

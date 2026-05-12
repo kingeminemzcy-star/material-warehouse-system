@@ -56,14 +56,14 @@ function emptyRow(args: {
 
 export async function GET(request: NextRequest) {
   const auth = await getAuthContext(request);
-  if (!auth) return NextResponse.json({ error: "未登录或账号已禁用。" }, { status: 401 });
+  if (!auth) return NextResponse.json({ ok: false, error: "未登录或账号已禁用。" }, { status: 401 });
   const projectId = new URL(request.url).searchParams.get("projectId");
-  if (!projectId) return NextResponse.json({ error: "缺少项目 ID。" }, { status: 400 });
+  if (!projectId) return NextResponse.json({ ok: false, error: "缺少项目 ID。" }, { status: 400 });
 
   const supabase = createSupabaseAdminClient();
   const { data: project, error: projectError } = await supabase.from("Project").select("*").eq("id", projectId).maybeSingle();
-  if (projectError) return NextResponse.json({ error: projectError.message }, { status: 500 });
-  if (!project) return NextResponse.json({ error: "项目不存在。" }, { status: 404 });
+  if (projectError) return NextResponse.json({ ok: false, error: projectError.message }, { status: 500 });
+  if (!project) return NextResponse.json({ ok: false, error: "项目不存在。" }, { status: 404 });
 
   const drawings = parseProjectNotes(project.notes).drawings;
   const boms = parseProjectNotes(project.notes).boms;
@@ -243,6 +243,7 @@ export async function GET(request: NextRequest) {
   });
 
   return NextResponse.json({
+    ok: true,
     project,
     drawings,
     drawingStats,

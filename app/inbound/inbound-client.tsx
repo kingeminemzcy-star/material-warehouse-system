@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { Loader2, PackagePlus } from "lucide-react";
 import { PhotoUploader } from "@/components/photo-uploader";
 import { getAuthHeaders } from "@/lib/client-auth";
+import { responseError, responseMessage, safeJson } from "@/lib/client-safe-json";
 import { inboundSourceLabels, zoneOptions } from "@/lib/warehouse-maps";
 
 type Material = { id: string; specId: string; name: string; spec: string; material: string; dimensions: string; unit: string };
@@ -35,9 +36,9 @@ export function InboundClient() {
     if (form.source === "工程退料" && !form.drawingId) return setError("项目退料必须选择项目图号。");
     setBusy(true); setError(null); setMessage(null);
     const res = await fetch("/api/inbound", { method: "POST", headers: { "Content-Type": "application/json", ...(await getAuthHeaders()) }, body: JSON.stringify({ ...form, materialId: selected.id, specId: selected.specId, unit: selected.unit }) });
-    const payload = await res.json();
-    if (!res.ok) { setError(payload.error || "入库失败。"); setBusy(false); return; }
-    setMessage(payload.message); await load(); setBusy(false);
+    const payload = await safeJson(res);
+    if (!res.ok) { setError(responseError(payload, "入库失败。")); setBusy(false); return; }
+    setMessage(responseMessage(payload, "入库成功。")); await load(); setBusy(false);
   }
   async function loadDrawings(projectId: string) {
     setDrawings([]);

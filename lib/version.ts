@@ -1,4 +1,4 @@
-export const APP_VERSION = "v0.5.6-alpha";
+export const APP_VERSION = "v0.5.7-alpha";
 
 export type ChangelogEntry = {
   version: string;
@@ -9,6 +9,20 @@ export type ChangelogEntry = {
 };
 
 export const changelog: ChangelogEntry[] = [
+  {
+    version: "v0.5.7-alpha",
+    updatedAt: "2026-05-12",
+    changes: [
+      "新增客户端 safeJson 响应解析工具，提交/保存操作遇到空响应或非 JSON 响应时不再触发页面红屏。",
+      "BOM 保存、图号编辑/删除/恢复、项目详情提交、采购申请生成、采购单、入库、出库和盘点等关键提交路径改为安全解析响应。",
+      "关键业务 API 响应补充 ok 字段，同时保留原有 message、error 和业务数据字段，兼容现有页面。"
+    ],
+    bugFixes: [
+      "修复点击提交/保存时 response.json() 遇到空响应导致 Unexpected end of JSON input 的运行时错误。",
+      "非 2xx 或非 JSON 响应会显示友好错误提示，不进入 Next.js 红屏。"
+    ],
+    databaseImpact: "无"
+  },
   {
     version: "v0.5.6-alpha",
     updatedAt: "2026-05-12",

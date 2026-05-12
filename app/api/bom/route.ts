@@ -17,6 +17,11 @@ type RawBomRow = {
   quantity?: number;
   remark?: string;
 };
+type BomMetaInput = {
+  projectCode?: string;
+  orderPerson?: string;
+  orderDate?: string;
+};
 
 function rowKey(row: RawBomRow) {
   return normalizeMaterialKey({ name: row.materialName, spec: row.spec, material: row.material, unit: row.unit });
@@ -84,7 +89,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   const auth = await getAuthContext(request);
   if (!auth) return NextResponse.json({ error: "未登录或账号已禁用。" }, { status: 401 });
-  const body = (await request.json()) as { projectId?: string; drawingNo?: string; version?: string; rows?: RawBomRow[] };
+  const body = (await request.json()) as { projectId?: string; drawingNo?: string; version?: string; rows?: RawBomRow[]; meta?: BomMetaInput };
   if (!body.projectId || !body.drawingNo || !body.version || !body.rows?.length) {
     return NextResponse.json({ error: "项目、图号、版本和 BOM 明细必填。" }, { status: 400 });
   }
@@ -102,6 +107,13 @@ export async function POST(request: NextRequest) {
   if (!drawing) {
     drawing = { id: compactId("dwg"), drawingNo: body.drawingNo, name: `${body.drawingNo} BOM`, version: body.version, remark: "BOM 上传自动创建图号", createdAt: now };
     drawings = [drawing, ...drawings];
+  } else if (drawing.voided) {
+    drawing = { ...drawing, voided: false, restoredAt: now, remark: [drawing.remark, "BOM 上传自动恢复图号"].filter(Boolean).join("；") };
+    drawings = drawings.map((item) => item.id === drawing!.id ? drawing! : item);
+  }
+  for (const drawingNo of [...new Set(body.rows.map((row) => row.drawingNo).filter(Boolean) as string[])]) {
+    if (drawings.some((item) => item.drawingNo === drawingNo)) continue;
+    drawings = [{ id: compactId("dwg"), drawingNo, name: `${drawingNo} BOM`, version: body.version, remark: "BOM 明细自动创建图号", createdAt: now }, ...drawings];
   }
 
   const { byCode, byKey, stock } = await loadMaterialIndex();
@@ -133,6 +145,10 @@ export async function POST(request: NextRequest) {
     isCurrent: true,
     uploadedAt: now,
     uploadedBy: auth.profile.id,
+    uploadedByName: auth.profile.name,
+    projectCode: body.meta?.projectCode || before.code,
+    orderPerson: body.meta?.orderPerson || "",
+    orderDate: body.meta?.orderDate || "",
     rows
   };
   const boms = [bom, ...notes.boms.map((item) => item.drawingId === drawing.id ? { ...item, isCurrent: false } : item)];

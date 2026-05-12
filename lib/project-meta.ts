@@ -7,6 +7,10 @@ export type ProjectDrawing = {
   version: string;
   remark: string;
   createdAt: string;
+  voided?: boolean;
+  voidReason?: string;
+  voidedAt?: string;
+  restoredAt?: string;
 };
 
 export type BomRow = {
@@ -32,6 +36,10 @@ export type ProjectBom = {
   isCurrent: boolean;
   uploadedAt: string;
   uploadedBy: string;
+  uploadedByName?: string;
+  projectCode?: string;
+  orderPerson?: string;
+  orderDate?: string;
   rows: BomRow[];
 };
 
@@ -72,5 +80,5 @@ export function stringifyProjectNotes(notes: Partial<ProjectNotes>) {
 
 export function drawingLabel(drawings: ProjectDrawing[], drawingId: unknown) {
   const drawing = drawings.find((item) => item.id === drawingId);
-  return drawing ? `${drawing.drawingNo} / ${drawing.name}` : "未关联图号";
+  return drawing ? `${drawing.drawingNo} / ${drawing.name}${drawing.voided ? "（已作废）" : ""}` : "未关联图号";
 }

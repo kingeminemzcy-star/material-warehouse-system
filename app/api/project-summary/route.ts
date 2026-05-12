@@ -66,6 +66,7 @@ export async function GET(request: NextRequest) {
   if (!project) return NextResponse.json({ error: "项目不存在。" }, { status: 404 });
 
   const drawings = parseProjectNotes(project.notes).drawings;
+  const boms = parseProjectNotes(project.notes).boms;
   const [{ data: requests }, { data: inbound }, { data: outbound }, { data: lots }] = await Promise.all([
     supabase
       .from("PurchaseRequest")
@@ -230,9 +231,22 @@ export async function GET(request: NextRequest) {
     status: item.returnQty > 0 ? "已有退料" : item.outboundQty > 0 ? "已领料" : item.inboundQty > 0 ? "已入库" : "待采购/入库"
   }));
 
+  const drawingStats = drawings.map((drawing) => {
+    const rows = summary.filter((item) => item.drawingId === drawing.id);
+    return {
+      ...drawing,
+      bomCount: boms.filter((bom) => bom.drawingId === drawing.id).length,
+      purchaseQty: rows.reduce((sum, item) => sum + item.purchasedQty, 0),
+      outboundQty: rows.reduce((sum, item) => sum + item.outboundQty, 0),
+      returnQty: rows.reduce((sum, item) => sum + item.returnQty, 0)
+    };
+  });
+
   return NextResponse.json({
     project,
     drawings,
+    drawingStats,
+    boms,
     summary,
     outboundRecords,
     returnRecords,

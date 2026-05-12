@@ -199,9 +199,10 @@ export async function PATCH(request: NextRequest) {
   }
 
   if (body.action === "complete" && !body.forceComplete) {
-    const [{ data: outbound }, { data: returns }] = await Promise.all([
+    const [{ data: outbound }, { data: returns }, { data: requests }] = await Promise.all([
       supabase.from("OutboundRecord").select("quantity").eq("projectId", body.id),
-      supabase.from("InboundRecord").select("quantity").eq("projectId", body.id).eq("source", "PROJECT_RETURN")
+      supabase.from("InboundRecord").select("quantity").eq("projectId", body.id).eq("source", "PROJECT_RETURN"),
+      supabase.from("PurchaseRequest").select("status").eq("projectId", body.id)
     ]);
     const outboundQty = (outbound ?? []).reduce((sum, row) => sum + Number(row.quantity ?? 0), 0);
     const returnQty = (returns ?? []).reduce((sum, row) => sum + Number(row.quantity ?? 0), 0);
@@ -211,6 +212,16 @@ export async function PATCH(request: NextRequest) {
         error: `项目仍有未退料数量 ${unreturnedQty}，确认无剩余材料后可强制完工。`,
         code: "UNRETURNED_MATERIALS",
         unreturnedQty
+      }, { status: 400 });
+    }
+    const unfinishedPurchaseCount = (requests ?? []).filter((row) => !["REJECTED", "COMPLETED"].includes(String(row.status))).length;
+    const openBomCount = oldNotes.boms.filter((bom) => bom.isCurrent).length;
+    if (unfinishedPurchaseCount > 0 || openBomCount > 0) {
+      return NextResponse.json({
+        error: `项目仍有未完成采购 ${unfinishedPurchaseCount} 条、未关闭 BOM ${openBomCount} 个，确认后可强制完工。`,
+        code: "UNRETURNED_MATERIALS",
+        unfinishedPurchaseCount,
+        openBomCount
       }, { status: 400 });
     }
   }

@@ -2,11 +2,12 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { CheckCircle2, Loader2, PackageMinus, PackagePlus, Plus } from "lucide-react";
+import { Ban, CheckCircle2, Loader2, PackageMinus, PackagePlus, Pencil, Plus, RotateCcw, Save, Trash2 } from "lucide-react";
 import { StatusBadge } from "@/components/status-badge";
 import { getAuthHeaders } from "@/lib/client-auth";
 
-type Drawing = { id: string; drawingNo: string; name: string; version: string; remark: string };
+type Drawing = { id: string; drawingNo: string; name: string; version: string; remark: string; voided?: boolean; voidReason?: string; bomCount?: number; purchaseQty?: number; outboundQty?: number; returnQty?: number };
+type BomItem = { id: string; drawingNo: string; version: string; isCurrent: boolean; uploadedAt: string; uploadedByName?: string; projectCode?: string; orderPerson?: string; orderDate?: string; rows: unknown[] };
 type SummaryItem = {
   drawingId: string;
   drawing: string;
@@ -29,6 +30,8 @@ type RecordItem = { id: string; outboundNo?: string; inboundNo?: string; drawing
 type SummaryPayload = {
   project: { id: string; code: string; name: string; customer: string | null; status: string };
   drawings: Drawing[];
+  drawingStats: Drawing[];
+  boms: BomItem[];
   summary: SummaryItem[];
   outboundRecords: RecordItem[];
   returnRecords: RecordItem[];
@@ -43,6 +46,8 @@ export function ProjectDetailClient({ projectId }: { projectId: string }) {
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [drawingForm, setDrawingForm] = useState({ drawingNo: "", name: "", version: "A", remark: "" });
+  const [editingDrawingId, setEditingDrawingId] = useState("");
+  const [editDrawingForm, setEditDrawingForm] = useState({ drawingNo: "", name: "", version: "A", remark: "" });
 
   const readonly = data?.project.status === "COMPLETED";
 
@@ -74,6 +79,34 @@ export function ProjectDetailClient({ projectId }: { projectId: string }) {
     }
     setMessage(payload.message || "图号已保存。");
     setDrawingForm({ drawingNo: "", name: "", version: "A", remark: "" });
+    await load();
+    setBusy(false);
+  }
+
+  function startEditDrawing(drawing: Drawing) {
+    setEditingDrawingId(drawing.id);
+    setEditDrawingForm({ drawingNo: drawing.drawingNo, name: drawing.name, version: drawing.version, remark: drawing.remark || "" });
+  }
+
+  async function drawingAction(drawing: Drawing, action: "update" | "void" | "restore" | "delete") {
+    const reason = action === "restore" ? "恢复作废图号" : window.prompt(action === "delete" ? "请输入删除/作废原因" : action === "void" ? "请输入作废原因" : "请输入修改原因", action === "update" ? "录入错误修正" : "");
+    if ((action !== "restore" || !reason) && !reason?.trim()) return;
+    setBusy(true);
+    setMessage(null);
+    setError(null);
+    const response = await fetch("/api/project-drawings", {
+      method: action === "delete" ? "DELETE" : "PATCH",
+      headers: { "Content-Type": "application/json", ...(await getAuthHeaders()) },
+      body: JSON.stringify({ projectId, drawingId: drawing.id, action, reason, ...(action === "update" ? editDrawingForm : {}) })
+    });
+    const payload = await response.json();
+    if (!response.ok) {
+      setError(payload.error || "图号操作失败。");
+      setBusy(false);
+      return;
+    }
+    setMessage(payload.message || "图号操作已完成。");
+    setEditingDrawingId("");
     await load();
     setBusy(false);
   }
@@ -177,32 +210,83 @@ export function ProjectDetailClient({ projectId }: { projectId: string }) {
         ))}
       </section>
 
-      <section className="grid gap-4 lg:grid-cols-[420px_1fr]">
-        <div className="rounded-lg border border-line bg-white p-4">
-          <h3 className="text-lg font-black text-ink">项目图号</h3>
-          <div className="mt-3 grid gap-2">
-            {data.drawings.length === 0 ? <div className="rounded-md bg-field px-3 py-3 text-sm text-ink/60">暂无图号，请先添加图号后再办理采购和领料。</div> : null}
-            {data.drawings.map((drawing) => (
-              <div key={drawing.id} className="rounded-md border border-line px-3 py-3">
-                <div className="font-black text-ink">{drawing.drawingNo}</div>
-                <div className="mt-1 text-sm text-ink/70">{drawing.name} / {drawing.version}</div>
-                {drawing.remark ? <div className="mt-1 text-xs text-ink/50">{drawing.remark}</div> : null}
-              </div>
-            ))}
-          </div>
-          <div className="mt-4 grid gap-3">
-            <input className="field" disabled={readonly} placeholder="图号" value={drawingForm.drawingNo} onChange={(event) => setDrawingForm({ ...drawingForm, drawingNo: event.target.value })} />
-            <input className="field" disabled={readonly} placeholder="图纸名称" value={drawingForm.name} onChange={(event) => setDrawingForm({ ...drawingForm, name: event.target.value })} />
-            <input className="field" disabled={readonly} placeholder="版本号" value={drawingForm.version} onChange={(event) => setDrawingForm({ ...drawingForm, version: event.target.value })} />
-            <input className="field" disabled={readonly} placeholder="备注" value={drawingForm.remark} onChange={(event) => setDrawingForm({ ...drawingForm, remark: event.target.value })} />
-            <button className="btn-primary min-h-11" disabled={busy || readonly} onClick={() => void addDrawing()}>
-              {busy ? <Loader2 className="animate-spin" size={17} /> : <Plus size={17} />}
-              添加图号
-            </button>
-          </div>
+      <section className="rounded-lg border border-line bg-white p-4">
+        <h3 className="text-lg font-black text-ink">图号分区</h3>
+        <div className="mt-3 grid gap-3 lg:grid-cols-2">
+          {data.drawingStats.length === 0 ? <div className="rounded-md bg-field px-3 py-3 text-sm text-ink/60">暂无图号，请先添加图号后再办理采购和领料。</div> : null}
+          {data.drawingStats.map((drawing) => (
+            <div key={drawing.id} className={`rounded-md border px-3 py-3 ${drawing.voided ? "border-amber-200 bg-amber-50" : "border-line bg-white"}`}>
+              {editingDrawingId === drawing.id ? (
+                <div className="grid gap-2">
+                  <input className="field" value={editDrawingForm.drawingNo} onChange={(event) => setEditDrawingForm({ ...editDrawingForm, drawingNo: event.target.value })} />
+                  <input className="field" value={editDrawingForm.name} onChange={(event) => setEditDrawingForm({ ...editDrawingForm, name: event.target.value })} />
+                  <input className="field" value={editDrawingForm.version} onChange={(event) => setEditDrawingForm({ ...editDrawingForm, version: event.target.value })} />
+                  <input className="field" value={editDrawingForm.remark} onChange={(event) => setEditDrawingForm({ ...editDrawingForm, remark: event.target.value })} />
+                  <div className="flex flex-wrap gap-2">
+                    <button className="btn-primary min-h-10 px-3" disabled={busy} onClick={() => void drawingAction(drawing, "update")}><Save size={16} />保存修改</button>
+                    <button className="btn-secondary min-h-10 px-3" onClick={() => setEditingDrawingId("")}>取消</button>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+                    <div>
+                      <div className="font-black text-ink">{drawing.drawingNo}{drawing.voided ? "（已作废）" : ""}</div>
+                      <div className="mt-1 text-sm text-ink/70">{drawing.name} / {drawing.version}</div>
+                      {drawing.remark ? <div className="mt-1 text-xs text-ink/50">{drawing.remark}</div> : null}
+                      {drawing.voidReason ? <div className="mt-1 text-xs font-semibold text-amber-800">作废原因：{drawing.voidReason}</div> : null}
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <button className="btn-secondary min-h-9 px-2 text-sm" disabled={readonly || busy} onClick={() => startEditDrawing(drawing)}><Pencil size={15} />编辑</button>
+                      {drawing.voided ? (
+                        <button className="btn-secondary min-h-9 px-2 text-sm" disabled={busy} onClick={() => void drawingAction(drawing, "restore")}><RotateCcw size={15} />恢复</button>
+                      ) : (
+                        <button className="btn-secondary min-h-9 px-2 text-sm" disabled={busy} onClick={() => void drawingAction(drawing, "void")}><Ban size={15} />作废</button>
+                      )}
+                      <button className="btn-secondary min-h-9 px-2 text-sm" disabled={busy} onClick={() => void drawingAction(drawing, "delete")}><Trash2 size={15} />删除</button>
+                    </div>
+                  </div>
+                  <div className="mt-3 grid grid-cols-4 gap-2 text-center text-xs font-semibold text-ink/60">
+                    <div className="rounded bg-field py-2">BOM {drawing.bomCount ?? 0}</div>
+                    <div className="rounded bg-field py-2">采购 {drawing.purchaseQty ?? 0}</div>
+                    <div className="rounded bg-field py-2">领料 {drawing.outboundQty ?? 0}</div>
+                    <div className="rounded bg-field py-2">退料 {drawing.returnQty ?? 0}</div>
+                  </div>
+                </>
+              )}
+            </div>
+          ))}
         </div>
+        <div className="mt-4 grid gap-3 md:grid-cols-5">
+          <input className="field" disabled={readonly} placeholder="图号" value={drawingForm.drawingNo} onChange={(event) => setDrawingForm({ ...drawingForm, drawingNo: event.target.value })} />
+          <input className="field" disabled={readonly} placeholder="图纸名称" value={drawingForm.name} onChange={(event) => setDrawingForm({ ...drawingForm, name: event.target.value })} />
+          <input className="field" disabled={readonly} placeholder="版本号" value={drawingForm.version} onChange={(event) => setDrawingForm({ ...drawingForm, version: event.target.value })} />
+          <input className="field" disabled={readonly} placeholder="备注" value={drawingForm.remark} onChange={(event) => setDrawingForm({ ...drawingForm, remark: event.target.value })} />
+          <button className="btn-primary min-h-11" disabled={busy || readonly} onClick={() => void addDrawing()}>
+            {busy ? <Loader2 className="animate-spin" size={17} /> : <Plus size={17} />}
+            添加图号
+          </button>
+        </div>
+      </section>
 
-        <div className="rounded-lg border border-line bg-white p-4">
+      <section className="rounded-lg border border-line bg-white p-4">
+        <h3 className="text-lg font-black text-ink">BOM 清单</h3>
+        <div className="mt-3 grid gap-2">
+          {data.boms.length === 0 ? <div className="rounded-md bg-field px-3 py-6 text-center text-sm text-ink/60">暂无 BOM。</div> : null}
+          {data.boms.map((bom) => (
+            <div key={bom.id} className="rounded-md border border-line px-3 py-3">
+              <div className="flex flex-col gap-1 md:flex-row md:items-center md:justify-between">
+                <div className="font-black text-ink">{bom.drawingNo} / {bom.version}</div>
+                <StatusBadge status={bom.isCurrent ? "当前版本" : "历史版本"} />
+              </div>
+              <div className="mt-1 text-sm text-ink/60">项目号：{bom.projectCode || data.project.code} / 下单人：{bom.orderPerson || "-"} / 下单日期：{bom.orderDate || "-"} / 上传人：{bom.uploadedByName || "-"} / 上传时间：{bom.uploadedAt?.slice(0, 16)}</div>
+              <div className="mt-1 text-xs text-ink/50">BOM 明细：{bom.rows.length} 行</div>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section className="rounded-lg border border-line bg-white p-4">
           <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <h3 className="text-lg font-black text-ink">项目采购清单</h3>
             <div className="grid gap-2 md:grid-cols-2">
@@ -238,7 +322,6 @@ export function ProjectDetailClient({ projectId }: { projectId: string }) {
               </tbody>
             </table>
           </div>
-        </div>
       </section>
 
       <section className="grid gap-4 xl:grid-cols-2">

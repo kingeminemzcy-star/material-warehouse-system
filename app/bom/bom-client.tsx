@@ -9,11 +9,11 @@ import { inferMaterialCategory } from "@/lib/material-code";
 type Project = { id: string; name: string; code: string };
 type BomInputRow = { drawingNo: string; materialName: string; spec: string; material: string; unit: string; quantity: number; remark: string };
 type BomAnalysisRow = BomInputRow & { id: string; materialCode: string; matchedMaterialId?: string; matchedSpecId?: string; currentStock: number; shortageQty: number; matchStatus: string };
-type Bom = { id: string; drawingNo: string; version: string; isCurrent: boolean; uploadedAt: string; rows: BomInputRow[]; analysis: BomAnalysisRow[] };
+type Bom = { id: string; drawingNo: string; version: string; isCurrent: boolean; uploadedAt: string; uploadedByName?: string; projectCode?: string; orderPerson?: string; orderDate?: string; rows: BomInputRow[]; analysis: BomAnalysisRow[] };
 type BomParseIssue = { fileName: string; line: number; reason: string };
 type BomColumnKey = "ignore" | "projectCode" | "applicant" | "date" | "drawingNo" | "sequence" | "materialName" | "spec" | "brand" | "material" | "unit" | "quantity" | "stock" | "remark";
 type BomMapping = Record<number, BomColumnKey>;
-type ParsedBomTable = { fileName: string; rows: string[][]; headerIndex: number; headers: string[]; mapping: BomMapping; projectCode: string; issues: BomParseIssue[] };
+type ParsedBomTable = { fileName: string; rows: string[][]; headerIndex: number; headers: string[]; mapping: BomMapping; projectCode: string; orderPerson: string; orderDate: string; issues: BomParseIssue[] };
 
 const BOM_MAPPING_TEMPLATE_KEY = "warehouse-bom-mapping-template-v1";
 const HEADER_SCAN_LIMIT = 30;
@@ -69,6 +69,31 @@ function parseCsv(text: string) {
     cells.push(current.trim());
     return cells.map((cell) => cell.replace(/^"|"$/g, ""));
   });
+}
+
+function excelSerialToDate(value: number) {
+  const utcDays = Math.floor(value - 25569);
+  const utcValue = utcDays * 86400;
+  const date = new Date(utcValue * 1000);
+  return Number.isNaN(date.getTime()) ? "" : date.toISOString().slice(0, 10);
+}
+
+function formatDateValue(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed || /^#+$/.test(trimmed)) return "";
+  const serial = Number(trimmed);
+  if (Number.isFinite(serial) && serial > 20000 && serial < 80000) return excelSerialToDate(serial);
+  const normalized = trimmed.replace(/[./年]/g, "-").replace(/[月]/g, "-").replace(/[日]/g, "");
+  const date = new Date(normalized);
+  if (!Number.isNaN(date.getTime())) return date.toISOString().slice(0, 10);
+  const match = normalized.match(/(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (!match) return trimmed;
+  return `${match[1]}-${match[2].padStart(2, "0")}-${match[3].padStart(2, "0")}`;
+}
+
+function cellToString(cell: unknown) {
+  if (cell instanceof Date) return cell.toISOString().slice(0, 10);
+  return String(cell ?? "").trim();
 }
 
 function normalizeText(value: string) {
@@ -160,11 +185,11 @@ function mappingSummary(headers: string[], mapping: BomMapping) {
 
 function normalizeTableRow(row: unknown, line: number, fileName: string): { row?: string[]; issue?: BomParseIssue } {
   if (Array.isArray(row)) {
-    const cells = row.map((cell) => String(cell ?? "").trim());
+    const cells = row.map(cellToString);
     return cells.some(Boolean) ? { row: cells } : { issue: { fileName, line, reason: "空行已跳过" } };
   }
   if (row && typeof row === "object") {
-    const cells = Object.values(row as Record<string, unknown>).map((cell) => String(cell ?? "").trim());
+    const cells = Object.values(row as Record<string, unknown>).map(cellToString);
     return cells.some(Boolean) ? { row: cells } : { issue: { fileName, line, reason: "对象行为空，已跳过" } };
   }
   if (row == null || row === "") {
@@ -234,13 +259,14 @@ function detectBomTable(rows: string[][], fileName: string): ParsedBomTable {
   const headers = rows[best.index] ?? [];
   const detectedMapping = createMappingFromHeaders(headers);
   const mapping = mergeStoredMapping(headers, detectedMapping);
+  const meta = extractBomMeta(rows, best.index, mapping);
   return {
     fileName,
     rows,
     headerIndex: best.index,
     headers,
     mapping,
-    projectCode: extractProjectCode(rows, best.index),
+    ...meta,
     issues
   };
 }
@@ -253,8 +279,24 @@ function updateTableHeader(table: ParsedBomTable, headerIndex: number): ParsedBo
     headerIndex,
     headers,
     mapping: detectedMapping,
-    projectCode: extractProjectCode(table.rows, headerIndex),
+    ...extractBomMeta(table.rows, headerIndex, detectedMapping),
     issues: []
+  };
+}
+
+function firstMappedValue(rows: string[][], startIndex: number, mapping: BomMapping, key: BomColumnKey) {
+  for (const row of rows.slice(startIndex + 1, startIndex + 8)) {
+    const value = valueByMapping(row, mapping, key);
+    if (value && !isPlaceholderCell(value)) return value;
+  }
+  return "";
+}
+
+function extractBomMeta(rows: string[][], headerIndex: number, mapping: BomMapping) {
+  return {
+    projectCode: firstMappedValue(rows, headerIndex, mapping, "projectCode") || extractProjectCode(rows, headerIndex),
+    orderPerson: firstMappedValue(rows, headerIndex, mapping, "applicant"),
+    orderDate: formatDateValue(firstMappedValue(rows, headerIndex, mapping, "date"))
   };
 }
 
@@ -381,6 +423,10 @@ export function BomClient() {
       setMapping(nextTable.mapping);
       setRows(parsed.rows);
       setParseIssues(nextIssues);
+      if (nextTable.projectCode) {
+        const matchedProject = projects.find((project) => project.code === nextTable.projectCode);
+        if (matchedProject) setProjectId(matchedProject.id);
+      }
       if (!parsed.rows.length) {
         const missingReason = missingFieldReason(nextTable.mapping);
         setError(missingReason ? `文件 ${file.name} 未解析到有效 BOM 明细：${missingReason}。请手动选择表头行或调整字段映射。` : `文件 ${file.name} 未解析到有效 BOM 明细，请检查表头识别和字段映射。`);
@@ -399,8 +445,10 @@ export function BomClient() {
     setMapping(nextMapping);
     if (!parsedTable) return;
     if (shouldSave) saveStoredMapping(nextMapping);
-    const parsed = buildRowsFromMapping(parsedTable, nextMapping);
-    const nextIssues = [...parsedTable.issues, ...parsed.issues];
+    const nextTable = { ...parsedTable, ...extractBomMeta(parsedTable.rows, parsedTable.headerIndex, nextMapping) };
+    const parsed = buildRowsFromMapping(nextTable, nextMapping);
+    const nextIssues = [...nextTable.issues, ...parsed.issues];
+    setParsedTable(nextTable);
     setRows(parsed.rows);
     setParseIssues(nextIssues);
     if (!parsed.rows.length) {
@@ -445,7 +493,7 @@ export function BomClient() {
     const response = await fetch("/api/bom", {
       method: "POST",
       headers: { "Content-Type": "application/json", ...(await getAuthHeaders()) },
-      body: JSON.stringify({ projectId, drawingNo, version, rows })
+      body: JSON.stringify({ projectId, drawingNo, version, rows, meta: { projectCode: parsedTable?.projectCode, orderPerson: parsedTable?.orderPerson, orderDate: parsedTable?.orderDate } })
     });
     const payload = await response.json();
     if (!response.ok) {
@@ -541,6 +589,8 @@ export function BomClient() {
               <div className="mt-2 grid gap-1 text-blue-900/75">
                 <div>真实表头：{parsedTable.headerIndex >= 0 ? `第 ${parsedTable.headerIndex + 1} 行` : "未自动识别"}</div>
                 <div>项目号：{parsedTable.projectCode || "未识别"}</div>
+                <div>下单人：{parsedTable.orderPerson || "未识别"}</div>
+                <div>下单日期：{parsedTable.orderDate || "未识别"}</div>
                 <div>原始字段：{parsedTable.headers.filter(Boolean).join(" / ") || "请手动选择表头行"}</div>
               </div>
               <label className="mt-3 grid gap-2">
@@ -606,6 +656,16 @@ export function BomClient() {
             <h2 className="text-lg font-black text-ink">上传预览</h2>
             {fileName ? <div className="text-sm font-semibold text-ink/55">{fileName} / {rows.length} 行有效数据</div> : null}
           </div>
+          {parsedTable ? (
+            <div className="mt-3 grid gap-2 rounded-md border border-blue-100 bg-blue-50 p-3 text-sm font-semibold text-blue-950 md:grid-cols-3">
+              <div>项目号：{parsedTable.projectCode || "未识别"}</div>
+              <div>下单人：{parsedTable.orderPerson || "未识别"}</div>
+              <div>下单日期：{parsedTable.orderDate || "未识别"}</div>
+              <div>部件位/图号：{drawingNo || "未识别"}</div>
+              <div>BOM 版本：{version}</div>
+              <div>项目名称：{projects.find((project) => project.id === projectId)?.name || "未选择"}</div>
+            </div>
+          ) : null}
           <div className="mt-3 overflow-x-auto">
             <table className="w-full min-w-[760px] text-left">
               <thead className="bg-field"><tr>{["图号","材料名称","规格","材质","单位","数量","备注"].map((item,index)=><th key={`${item}-${index}`} className="px-4 py-3 text-sm font-black">{item}</th>)}</tr></thead>
@@ -630,7 +690,7 @@ export function BomClient() {
               <div className="flex flex-col gap-3 border-b border-line px-4 py-3 md:flex-row md:items-center md:justify-between">
                 <div>
                   <div className="font-black text-ink">{bom.drawingNo} / {bom.version}</div>
-                  <div className="mt-1 text-xs text-ink/55">上传时间：{bom.uploadedAt?.slice(0, 16)}</div>
+                  <div className="mt-1 text-xs text-ink/55">项目号：{bom.projectCode || "-"} / 下单人：{bom.orderPerson || "-"} / 下单日期：{bom.orderDate || "-"} / 上传人：{bom.uploadedByName || "-"} / 上传时间：{bom.uploadedAt?.slice(0, 16)}</div>
                 </div>
                 <div className="flex flex-wrap gap-2">
                   <StatusBadge status={bom.isCurrent ? "当前版本" : "历史版本"} />

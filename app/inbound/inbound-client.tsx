@@ -9,7 +9,7 @@ import { inboundSourceLabels, zoneOptions } from "@/lib/warehouse-maps";
 type Material = { id: string; specId: string; name: string; spec: string; material: string; dimensions: string; unit: string };
 type Project = { id: string; name: string };
 type Order = { id: string; orderNo: string; supplier: string; statusText: string };
-type Drawing = { id: string; drawingNo: string; name: string; version: string };
+type Drawing = { id: string; drawingNo: string; name: string; version: string; voided?: boolean };
 
 export function InboundClient() {
   const [materials, setMaterials] = useState<Material[]>([]);
@@ -43,7 +43,8 @@ export function InboundClient() {
     setDrawings([]);
     setForm((old) => ({ ...old, projectId, drawingId: "" }));
     if (!projectId) return;
-    const payload = await fetch(`/api/project-drawings?projectId=${encodeURIComponent(projectId)}`, { headers: await getAuthHeaders(), cache: "no-store" }).then((r) => r.json());
+    const includeVoided = form.source === "工程退料" ? "&includeVoided=true" : "";
+    const payload = await fetch(`/api/project-drawings?projectId=${encodeURIComponent(projectId)}${includeVoided}`, { headers: await getAuthHeaders(), cache: "no-store" }).then((r) => r.json());
     setDrawings(payload.drawings ?? []);
   }
   useEffect(() => {
@@ -62,7 +63,7 @@ export function InboundClient() {
     <select className="field" value={form.zone} onChange={(e)=>setForm({...form,zone:e.target.value})}>{zoneOptions.map(z=><option key={z.value}>{z.label}</option>)}</select>
     <input className="field" placeholder="库位" value={form.locationCode} onChange={(e)=>setForm({...form,locationCode:e.target.value})}/>
     <select className="field" value={form.projectId} onChange={(e)=>void loadDrawings(e.target.value)}><option value="">无关联工程</option>{projects.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select>
-    <select className="field" value={form.drawingId} onChange={(e)=>setForm({...form,drawingId:e.target.value})}><option value="">{form.source === "工程退料" ? "选择项目图号（必选）" : "不关联图号"}</option>{drawings.map(d=><option key={d.id} value={d.id}>{d.drawingNo} / {d.name}</option>)}</select>
+    <select className="field" value={form.drawingId} onChange={(e)=>setForm({...form,drawingId:e.target.value})}><option value="">{form.source === "工程退料" ? "选择项目图号（必选）" : "不关联图号"}</option>{drawings.map(d=><option key={d.id} value={d.id}>{d.drawingNo} / {d.name}{d.voided ? "（已作废）" : ""}</option>)}</select>
     <input className="field" placeholder="备注" value={form.remark} onChange={(e)=>setForm({...form,remark:e.target.value})}/>
     <PhotoUploader label="入库照片" />
     <button className="btn-primary min-h-14 text-lg" disabled={busy} onClick={()=>void submit()}>{busy?<Loader2 className="animate-spin" size={22}/>:<PackagePlus size={22}/>}确认入库并增加库存</button>

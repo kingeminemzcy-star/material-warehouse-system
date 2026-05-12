@@ -7,7 +7,7 @@ import { getAuthHeaders } from "@/lib/client-auth";
 
 type Lot = { id:string; materialId:string; specId:string; name:string; spec:string; material:string; dimensions:string; quantity:number; unit:string; zoneText:string; locationCode:string };
 type Project = { id:string; name:string };
-type Drawing = { id:string; drawingNo:string; name:string; version:string };
+type Drawing = { id:string; drawingNo:string; name:string; version:string; voided?: boolean };
 
 export function OutboundClient() {
   const [lots,setLots]=useState<Lot[]>([]); const [projects,setProjects]=useState<Project[]>([]);
@@ -15,7 +15,7 @@ export function OutboundClient() {
   const [busy,setBusy]=useState(false); const [message,setMessage]=useState<string|null>(null); const [error,setError]=useState<string|null>(null);
   const [form,setForm]=useState({projectId:"",drawingId:"",lotId:"",quantity:1,purpose:"",remark:""});
   async function load(){const [i,p]=await Promise.all([fetch("/api/inventory",{headers:await getAuthHeaders(),cache:"no-store"}).then(r=>r.json()),fetch("/api/projects",{headers:await getAuthHeaders(),cache:"no-store"}).then(r=>r.json())]); setLots(i.inventory??[]); setProjects(p.projects??[]);}
-  async function loadDrawings(projectId:string){setDrawings([]); setForm((old)=>({...old,projectId,drawingId:""})); if(!projectId)return; const p=await fetch(`/api/project-drawings?projectId=${encodeURIComponent(projectId)}`,{headers:await getAuthHeaders(),cache:"no-store"}).then(r=>r.json()); setDrawings(p.drawings??[]);}
+  async function loadDrawings(projectId:string){setDrawings([]); setForm((old)=>({...old,projectId,drawingId:""})); if(!projectId)return; const p=await fetch(`/api/project-drawings?projectId=${encodeURIComponent(projectId)}`,{headers:await getAuthHeaders(),cache:"no-store"}).then(r=>r.json()); setDrawings((p.drawings??[]).filter((drawing:Drawing)=>!drawing.voided));}
   async function submit(){const lot=lots.find(l=>l.id===form.lotId); if(!form.projectId)return setError("请选择工程项目。"); if(!form.drawingId)return setError("出库必须选择项目图号。"); if(!lot)return setError("请选择库存批次。"); setBusy(true); setError(null); setMessage(null); const res=await fetch("/api/outbound",{method:"POST",headers:{"Content-Type":"application/json",...(await getAuthHeaders())},body:JSON.stringify({projectId:form.projectId,drawingId:form.drawingId,materialId:lot.materialId,specId:lot.specId,zone:lot.zoneText,locationCode:lot.locationCode,quantity:form.quantity,unit:lot.unit,purpose:form.purpose,remark:form.remark})}); const payload=await res.json(); if(!res.ok){setError(payload.error||"出库失败。"); setBusy(false); return;} setMessage(payload.message); await load(); setBusy(false);}
   useEffect(()=>{void load(); const projectId=new URLSearchParams(window.location.search).get("projectId"); if(projectId) void loadDrawings(projectId);},[]);
   return <div className="grid gap-6 xl:grid-cols-[430px_1fr]"><section className="rounded-lg border border-line bg-white p-4 shadow-soft"><h2 className="text-lg font-black">办理出库</h2><div className="mt-4 grid gap-4">

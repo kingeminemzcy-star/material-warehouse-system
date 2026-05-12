@@ -1,4 +1,4 @@
-export const APP_VERSION = "v0.5.5-alpha";
+export const APP_VERSION = "v0.5.6-alpha";
 
 export type ChangelogEntry = {
   version: string;
@@ -9,6 +9,22 @@ export type ChangelogEntry = {
 };
 
 export const changelog: ChangelogEntry[] = [
+  {
+    version: "v0.5.6-alpha",
+    updatedAt: "2026-05-12",
+    changes: [
+      "BOM 解析新增下单人、下单日期、项目号、部件位/图号元数据提取，并在 BOM 预览、BOM 详情和项目详情中展示。",
+      "BOM 上传会保存上传人、上传时间、下单信息和项目号，并自动关联或创建项目图号。",
+      "项目详情页新增图号分区和 BOM 清单，按图号展示关联 BOM 数量、采购数量、领料数量和退料数量。",
+      "图号支持编辑、作废、删除和恢复，继续使用 Project.notes JSON 结构保存，不新增数据库迁移。"
+    ],
+    bugFixes: [
+      "出库图号选择过滤已作废图号，退料入库允许选择历史作废图号并标记。",
+      "图号删除时会检查 BOM、采购、入库和出库关联，有业务记录时转为作废并保留历史。",
+      "项目完工检查补充未完成采购和未关闭 BOM 提示。"
+    ],
+    databaseImpact: "无"
+  },
   {
     version: "v0.5.5-alpha",
     updatedAt: "2026-05-11",

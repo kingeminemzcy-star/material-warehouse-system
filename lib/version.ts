@@ -1,4 +1,4 @@
-export const APP_VERSION = "v0.5.7-alpha";
+export const APP_VERSION = "v0.5.8-alpha";
 
 export type ChangelogEntry = {
   version: string;
@@ -9,6 +9,22 @@ export type ChangelogEntry = {
 };
 
 export const changelog: ChangelogEntry[] = [
+  {
+    version: "v0.5.8-alpha",
+    updatedAt: "2026-05-14",
+    changes: [
+      "新增 BOM 档案库页面，按项目、图号/部件位、BOM 版本和明细层级折叠收纳所有 BOM。",
+      "BOM 档案卡片展示文件名、项目号、项目名称、图号、版本、填单人、填单日期、上传人、上传时间、明细数量和缺料数量。",
+      "新增 BOM 档案综合检索与筛选，支持项目、图号、填单人、上传日期、填单日期、BOM 版本、缺料状态和采购申请状态。",
+      "BOM 详情新增基础信息、明细表、缺料分析、关联采购申请和操作日志，并支持导出、作废、恢复、生成采购申请和跳转关联项目。"
+    ],
+    bugFixes: [
+      "已作废 BOM 不再参与缺料分析，但仍可在档案库查看历史明细和日志。",
+      "BOM 档案作废、恢复和生成采购申请统一要求二次确认与操作原因，并写入审计日志。",
+      "从 BOM 中心生成采购申请后会回写 BOM 的采购生成状态，便于档案库筛选。"
+    ],
+    databaseImpact: "无"
+  },
   {
     version: "v0.5.7-alpha",
     updatedAt: "2026-05-12",

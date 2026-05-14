@@ -32,6 +32,7 @@ export type ProjectBom = {
   projectId: string;
   drawingId: string;
   drawingNo: string;
+  fileName?: string;
   version: string;
   isCurrent: boolean;
   uploadedAt: string;
@@ -40,6 +41,12 @@ export type ProjectBom = {
   projectCode?: string;
   orderPerson?: string;
   orderDate?: string;
+  voided?: boolean;
+  voidReason?: string;
+  voidedAt?: string;
+  restoredAt?: string;
+  purchaseGeneratedAt?: string;
+  purchaseRequestIds?: string[];
   rows: BomRow[];
 };
 

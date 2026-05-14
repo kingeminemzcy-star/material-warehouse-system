@@ -494,7 +494,7 @@ export function BomClient() {
     const response = await fetch("/api/bom", {
       method: "POST",
       headers: { "Content-Type": "application/json", ...(await getAuthHeaders()) },
-      body: JSON.stringify({ projectId, drawingNo, version, rows, meta: { projectCode: parsedTable?.projectCode, orderPerson: parsedTable?.orderPerson, orderDate: parsedTable?.orderDate } })
+      body: JSON.stringify({ projectId, drawingNo, version, rows, meta: { fileName, projectCode: parsedTable?.projectCode, orderPerson: parsedTable?.orderPerson, orderDate: parsedTable?.orderDate } })
     });
     const payload = await safeJson(response);
     if (!response.ok) {

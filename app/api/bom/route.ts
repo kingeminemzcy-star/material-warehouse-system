@@ -18,9 +18,21 @@ type RawBomRow = {
   remark?: string;
 };
 type BomMetaInput = {
+  fileName?: string;
   projectCode?: string;
   orderPerson?: string;
   orderDate?: string;
+};
+type CreatedPurchaseRequest = {
+  id: string;
+  requestNo: string;
+  projectId: string;
+  applicantId: string;
+  status: string;
+  purpose: string;
+  remark: string | null;
+  createdAt: string;
+  updatedAt: string;
 };
 
 function rowKey(row: RawBomRow) {
@@ -142,6 +154,7 @@ export async function POST(request: NextRequest) {
     projectId: body.projectId,
     drawingId: drawing.id,
     drawingNo: body.drawingNo,
+    fileName: body.meta?.fileName || `${body.drawingNo}-${body.version}`,
     version: body.version,
     isCurrent: true,
     uploadedAt: now,
@@ -212,7 +225,7 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json({ ok: true, message: skipped.length ? "存在未匹配材料，请先创建材料档案。" : "当前 BOM 无缺料，无需生成采购申请。", skipped });
   }
 
-  const created = [];
+  const created: CreatedPurchaseRequest[] = [];
   for (const row of shortageRows) {
     const requestId = compactId("pr");
     const { data: purchaseRequest, error } = await supabase.from("PurchaseRequest").insert({
@@ -238,8 +251,12 @@ export async function PATCH(request: NextRequest) {
       remark: row.remark || null
     });
     if (itemError) return NextResponse.json({ ok: false, error: itemError.message }, { status: 500 });
-    created.push(purchaseRequest);
+    created.push(purchaseRequest as CreatedPurchaseRequest);
   }
+
+  const boms = notes.boms.map((item) => item.id === body.bomId ? { ...item, purchaseGeneratedAt: now, purchaseRequestIds: [...new Set([...(item.purchaseRequestIds ?? []), ...created.map((requestRow) => requestRow.id)])] } : item);
+  const { error: updateError } = await supabase.from("Project").update({ notes: stringifyProjectNotes({ ...notes, boms }), updatedAt: now }).eq("id", body.projectId);
+  if (updateError) return NextResponse.json({ ok: false, error: updateError.message }, { status: 500 });
 
   await writeOperationLog({
     actorId: auth.profile.id,
@@ -247,7 +264,7 @@ export async function PATCH(request: NextRequest) {
     projectId: body.projectId,
     remark: `BOM 缺料自动生成采购申请：${created.length} 条`,
     before: bom,
-    after: created,
+    after: { created, bom: boms.find((item) => item.id === body.bomId) },
     extra: { action: "BOM_GENERATE_PURCHASE", bomId: bom.id, skipped }
   });
 

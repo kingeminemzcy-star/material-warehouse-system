@@ -17,6 +17,7 @@ function keyFromPath(pathname: string) {
     logs: "logs",
     projects: "projects",
     bom: "bom",
+    "bom-archive": "bom",
     materials: "materials",
     inbound: "inbound",
     outbound: "outbound",

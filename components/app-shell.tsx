@@ -3,6 +3,7 @@ import {
   ClipboardCheck,
   ClipboardList,
   Archive,
+  Activity,
   FileSpreadsheet,
   FileClock,
   Home,
@@ -23,6 +24,7 @@ import {
 import { CurrentUserCard } from "@/components/current-user-card";
 import { AccessGuard } from "@/components/access-guard";
 import { LogoMark } from "@/components/logo-mark";
+import { SystemStatusDot } from "@/components/system-status-dot";
 import { VersionFooter } from "@/components/version-footer";
 
 const nav = [
@@ -43,10 +45,11 @@ const nav = [
   { href: "/suppliers", label: "供应商", icon: Truck },
   { href: "/units", label: "单位管理", icon: Ruler },
   { href: "/photos", label: "照片", icon: PackageCheck },
+  { href: "/health", label: "系统健康", icon: Activity },
   { href: "/changelog", label: "更新日志", icon: History }
 ];
 
-export function AppShell({ children, title, subtitle }: { children: React.ReactNode; title: string; subtitle?: string }) {
+export function AppShell({ children, title, subtitle, skipAccessGuard = false }: { children: React.ReactNode; title: string; subtitle?: string; skipAccessGuard?: boolean }) {
   return (
     <div className="min-h-screen lg:grid lg:grid-cols-[248px_1fr]">
       <aside className="border-b border-line bg-white lg:min-h-screen lg:border-b-0 lg:border-r">
@@ -88,6 +91,7 @@ export function AppShell({ children, title, subtitle }: { children: React.ReactN
               {subtitle ? <p className="mt-1 text-sm text-ink/60">{subtitle}</p> : null}
             </div>
             <div className="flex gap-2">
+              <SystemStatusDot />
               <button className="btn-secondary">
                 <ScanLine size={18} />
                 扫码预留
@@ -96,7 +100,7 @@ export function AppShell({ children, title, subtitle }: { children: React.ReactN
           </div>
         </header>
         <div className="px-4 py-5 md:px-7">
-          <AccessGuard>{children}</AccessGuard>
+          {skipAccessGuard ? children : <AccessGuard>{children}</AccessGuard>}
         </div>
         <VersionFooter />
       </main>

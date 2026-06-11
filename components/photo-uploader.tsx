@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { Camera, UploadCloud } from "lucide-react";
-import { createSupabaseBrowserClient, isSupabaseConfigured } from "@/lib/supabase";
+import { AUTH_NETWORK_ERROR_MESSAGE, createSupabaseBrowserClient, isSupabaseConfigured } from "@/lib/supabase";
 
 export function PhotoUploader({ label = "上传照片" }: { label?: string }) {
   const [message, setMessage] = useState("支持材料、入库、出库照片");
@@ -20,12 +20,15 @@ export function PhotoUploader({ label = "上传照片" }: { label?: string }) {
     }
 
     const path = `photos/${Date.now()}-${file.name}`;
-    const { error } = await supabase.storage.from(bucket).upload(path, file, {
-      cacheControl: "3600",
-      upsert: false
-    });
-
-    setMessage(error ? `上传失败：${error.message}` : `已上传：${path}`);
+    try {
+      const { error } = await supabase.storage.from(bucket).upload(path, file, {
+        cacheControl: "3600",
+        upsert: false
+      });
+      setMessage(error ? `上传失败：${error.message}` : `已上传：${path}`);
+    } catch {
+      setMessage(`上传失败：${AUTH_NETWORK_ERROR_MESSAGE}`);
+    }
     setBusy(false);
   }
 

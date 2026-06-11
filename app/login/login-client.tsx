@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Loader2, LockKeyhole, Mail, ShieldCheck } from "lucide-react";
-import { createSupabaseBrowserClient } from "@/lib/supabase";
+import { AUTH_NETWORK_ERROR_MESSAGE, createSupabaseBrowserClient, getSupabaseConfigStatus } from "@/lib/supabase";
 import { LogoMark } from "@/components/logo-mark";
 import { APP_VERSION } from "@/lib/version";
 
@@ -17,15 +17,27 @@ export function LoginClient() {
   async function login() {
     setBusy(true);
     setError(null);
-    const supabase = createSupabaseBrowserClient();
-    if (!supabase) {
-      setError("Supabase 环境变量未配置。");
+    const config = getSupabaseConfigStatus();
+    if (!config.ok) {
+      setError(config.error);
       setBusy(false);
       return;
     }
-    const { error: loginError } = await supabase.auth.signInWithPassword({ email, password });
-    if (loginError) {
-      setError(loginError.message);
+    const supabase = createSupabaseBrowserClient();
+    if (!supabase) {
+      setError(AUTH_NETWORK_ERROR_MESSAGE);
+      setBusy(false);
+      return;
+    }
+    try {
+      const { error: loginError } = await supabase.auth.signInWithPassword({ email, password });
+      if (loginError) {
+        setError(loginError.message || AUTH_NETWORK_ERROR_MESSAGE);
+        setBusy(false);
+        return;
+      }
+    } catch {
+      setError(AUTH_NETWORK_ERROR_MESSAGE);
       setBusy(false);
       return;
     }

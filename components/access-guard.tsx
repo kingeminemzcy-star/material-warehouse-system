@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
-import { getAuthHeaders } from "@/lib/client-auth";
+import { getAuthHeaderResult } from "@/lib/client-auth";
 
 type Permissions = Record<string, boolean>;
 
@@ -25,6 +25,7 @@ function keyFromPath(pathname: string) {
     suppliers: "suppliers",
     units: "units",
     photos: "photos",
+    health: "dashboard",
     changelog: "dashboard",
     dashboard: "dashboard"
   };
@@ -34,17 +35,37 @@ function keyFromPath(pathname: string) {
 export function AccessGuard({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const [permissions, setPermissions] = useState<Permissions | null>(null);
+  const [error, setError] = useState("");
 
   useEffect(() => {
     let alive = true;
     async function load() {
-      const response = await fetch("/api/me", { headers: await getAuthHeaders(), cache: "no-store" });
-      if (!response.ok) {
+      try {
+        const auth = await getAuthHeaderResult();
+        if (auth.error) {
+          if (alive) {
+            setPermissions({});
+            setError(auth.error);
+          }
+          return;
+        }
+        const response = await fetch("/api/me", { headers: auth.headers, cache: "no-store" });
+        const payload = await response.json().catch(() => null) as { user?: { permissions?: Permissions }; error?: string } | null;
+        if (!response.ok) {
+          if (alive) {
+            setPermissions({});
+            setError(payload?.error ?? auth.error ?? "无法读取当前账号权限。");
+          }
+          return;
+        }
+        if (alive) {
+          setPermissions(payload?.user?.permissions ?? {});
+          setError("");
+        }
+      } catch {
         if (alive) setPermissions({});
-        return;
+        if (alive) setError("无法连接认证服务，请检查网络或 Supabase 配置");
       }
-      const payload = await response.json();
-      if (alive) setPermissions(payload.user?.permissions ?? {});
     }
     void load();
     return () => {
@@ -53,6 +74,14 @@ export function AccessGuard({ children }: { children: React.ReactNode }) {
   }, []);
 
   const key = keyFromPath(pathname);
+  if (permissions && error) {
+    return (
+      <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-10 text-center text-sm font-semibold text-red-800">
+        {error}
+      </div>
+    );
+  }
+
   if (permissions && permissions[key] === false) {
     return (
       <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-10 text-center text-sm font-semibold text-red-800">

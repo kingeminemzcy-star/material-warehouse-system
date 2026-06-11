@@ -1,4 +1,4 @@
-export const APP_VERSION = "v0.5.8-alpha";
+export const APP_VERSION = "v0.5.9-alpha";
 
 export type ChangelogEntry = {
   version: string;
@@ -9,6 +9,23 @@ export type ChangelogEntry = {
 };
 
 export const changelog: ChangelogEntry[] = [
+  {
+    version: "v0.5.9-alpha",
+    updatedAt: "2026-06-11",
+    changes: [
+      "增强 Supabase Auth 初始化检查，明确校验 NEXT_PUBLIC_SUPABASE_URL 和 NEXT_PUBLIC_SUPABASE_ANON_KEY 是否可读取。",
+      "新增认证服务网络失败兜底，登录、权限保护、用户卡片和照片上传遇到 Supabase Failed to fetch 时显示友好提示。",
+      "/api/me 统一返回 JSON 响应，认证服务异常时返回无法连接认证服务提示。",
+      "新增 /health 系统健康检查页，集中显示 Supabase、数据库、API、当前登录用户、角色和当前版本状态。",
+      "首页右上角新增系统状态小圆点，绿色表示正常、黄色表示连接慢、红色表示数据库不可用。"
+    ],
+    bugFixes: [
+      "修复 @supabase_auth-js 抛出 TypeError: Failed to fetch 时可能导致页面红屏的问题。",
+      "前端获取 session 失败时不再中断页面渲染，统一提示：无法连接认证服务，请检查网络或 Supabase 配置。",
+      "Supabase 项目暂停或数据库连接失败时，健康检查页明确提示数据库服务暂不可用，避免误以为数据丢失。"
+    ],
+    databaseImpact: "无"
+  },
   {
     version: "v0.5.8-alpha",
     updatedAt: "2026-05-14",
